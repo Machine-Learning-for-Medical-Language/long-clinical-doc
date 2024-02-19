@@ -114,7 +114,7 @@ if __name__ == "__main__":
         outputs_dict_total.update(outputs_dict)
 
     json_path = os.path.join(args.output_path, f"labels.json")
-    with open(args.output_path, 'w') as outfp:
+    with open(json_path, 'w') as outfp:
         json.dump(fp=outfp, obj=outputs_dict, indent=2)
 
-    logger.debug(f"Writing of labels done. Path: {args.output_path}")
+    logger.debug(f"Writing of labels done. Path: {json_path}")

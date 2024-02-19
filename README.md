@@ -22,6 +22,15 @@ This repository only provides hashed (i.e. one-way encryption) document ids and 
 
 <hr>
 
+## How to prepare the dataset
+
+#### Environments: 
+We strongly recommand to use Python version over 3.9.
+<br>The example codes are tested on Ubuntu 22.04 (python v3.10.12) and MacOS v13.5.2 (python v3.9.6).
+
+Please pay attention to the message (stdout) as it will tell the integrity of the created data. Note that the integrety do not check the order of the dataset. 
+
+
 ### Folder structure
 
 ```bash
@@ -30,13 +39,6 @@ create_data_serverside.py
 ```
 Please note that `create_data_serverside.py` is the code the authors used to extract labels from pre-processed data. It is not required for users to run the code.
 
-### How to prepare the dataset
-
-#### Environments: 
-We strongly recommand to use Python version over 3.9.
-The example codes are tested on Ubuntu 22.04 (python v3.10.12) and MacOS v13.5.2 (python v3.9.6).
-
-Please pay attention to the message (stdout) as it will tell the integrity of the created data. Note that the integrety do not check the order of the dataset. 
 
 ### Steps: 
 
