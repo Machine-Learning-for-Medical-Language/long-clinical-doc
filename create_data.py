@@ -9,9 +9,9 @@ import logging
 VERSION = "v20240209"
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 """
-    Set logger level as INFO for per patient-level evaluation results. 
+    Set logger level as INFO. 
     Set DEBUG for more detailed results.
 """
 
@@ -21,20 +21,23 @@ def hash_data(key, text_seed, seed="Landmark Center 401 park drive", algorithm='
         raise TypeError(f"text_seed should be str type: current: {type(text_seed)}")
 
     if algorithm=='sha256':
-        h_key = hashlib.sha256(key, usedforsecurity=True)
-        h_text = hashlib.sha256(text_seed, usedforsecurity=True)
-        h_seed = hashlib.sha256(seed, usedforsecurity=True)
+        h_key = hashlib.sha256(key.encode('utf-8'), usedforsecurity=True).hexdigest()
+        h_text = hashlib.sha256(text_seed.encode('utf-8'), usedforsecurity=True).hexdigest()
+        h_seed = hashlib.sha256(seed.encode('utf-8'), usedforsecurity=True).hexdigest()
     else:
         #hash_func = hashlib.new(algorithm)
         raise NotImplementedError("Hash algorithm must be SHA256!")
     
-    xored = h_key ^ h_text ^ h_seed
+    xored = hex(int(h_key, 16) ^ int(h_text, 16) ^ int(h_seed, 16))
 
     if debug:
-        logger.debug(f"key:{key}, h_key: {h_key}")
-        logger.debug(f"text_seed:{text_seed}, h_text: {h_text}")
-        logger.debug(f"seed:{seed}, h_seed: {h_seed}")
-        logger.debug(f"XORed:{xored}")
+        logger.warning(f"h_key: {h_key}")
+        logger.warning(f"key:{key}")
+        logger.warning(f"h_text: {h_text}")
+        logger.warning(f"text_seed:{text_seed[:300]} (omitted)")
+        logger.warning(f"h_seed: {h_seed}")
+        logger.warning(f"seed:{seed}")
+        logger.warning(f"XORed:{xored}")
 
     return xored
 

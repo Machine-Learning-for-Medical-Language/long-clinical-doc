@@ -9,9 +9,9 @@ import logging
 VERSION = "v20240209"
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 """
-    Set logger level as INFO for per patient-level evaluation results. 
+    Set logger level as INFO. 
     Set DEBUG for more detailed results.
 """
 
@@ -21,20 +21,23 @@ def hash_data(key, text_seed, seed="Landmark Center 401 park drive", algorithm='
         raise TypeError(f"text_seed should be str type: current: {type(text_seed)}")
 
     if algorithm=='sha256':
-        h_key = hashlib.sha256(key, usedforsecurity=True)
-        h_text = hashlib.sha256(text_seed, usedforsecurity=True)
-        h_seed = hashlib.sha256(seed, usedforsecurity=True)
+        h_key = hashlib.sha256(key.encode('utf-8'), usedforsecurity=True).hexdigest()
+        h_text = hashlib.sha256(text_seed.encode('utf-8'), usedforsecurity=True).hexdigest()
+        h_seed = hashlib.sha256(seed.encode('utf-8'), usedforsecurity=True).hexdigest()
     else:
         #hash_func = hashlib.new(algorithm)
         raise NotImplementedError("Hash algorithm must be SHA256!")
     
-    xored = h_key ^ h_text ^ h_seed
+    xored = hex(int(h_key, 16) ^ int(h_text, 16) ^ int(h_seed, 16))
 
     if debug:
-        logger.debug(f"key:{key}, h_key: {h_key}")
-        logger.debug(f"text_seed:{text_seed}, h_text: {h_text}")
-        logger.debug(f"seed:{seed}, h_seed: {h_seed}")
-        logger.debug(f"XORed:{xored}")
+        logger.warning(f"h_key: {h_key}")
+        logger.warning(f"key:{key}")
+        logger.warning(f"h_text: {h_text}")
+        logger.warning(f"text_seed:{text_seed[:300]} (omitted)")
+        logger.warning(f"h_seed: {h_seed}")
+        logger.warning(f"seed:{seed}")
+        logger.warning(f"XORed:{xored}")
 
     return xored
 
@@ -65,15 +68,18 @@ if __name__ == "__main__":
 
     logger.info(args)
 
+    if not os.path.exists(args.output_path):
+        os.makedirs(args.output_path)
+
     gold_data = {}
     for data_type in ["train", "dev", "test"]:
-        with open(os.path.join(args.gold_path, f"{data_type}-full.json")) as goldfp:
+        with open(os.path.join(args.gold_path, f"full-{data_type}-indent.json")) as goldfp:
             gold_data[data_type] = json.load(goldfp)
 
-    outputs_dict = {}
 
     for data_type, data in gold_data.items():
-        for data_idx, data_row in enumerate(data):
+        outputs_dict = {}
+        for data_idx, data_row in enumerate(data['data']):
 
             text = data_row['text']
 
@@ -96,15 +102,13 @@ if __name__ == "__main__":
                 "out_hospital_mortality_30": data_row['out_hospital_mortality_30']
             } 
     
-    if not os.path.exists(args.output_path):
-        os.makedirs(args.output_path)
+        if os.path.isdir(args.output_path):
+            json_path = os.path.join(args.output_path, f"{data_type}-labels.json")
+        else:
+            raise AttributeError("args.output_path should be a dir")
+            #json_path = args.output_path
+                            
+        with open(json_path, 'w') as outfp:
+            json.dump(fp=outfp, obj=outputs_dict, indent=2)
 
-    if os.path.isdir(args.output_path):
-        json_path = os.path.json(args.output_path, "labels.json")
-    else:
-        json_path = args.output_path
-                        
-    with open(json_path, 'w') as outfp:
-        json.dump(fp=outfp, obj=outputs_dict, indent=2)
-
-    logger.debug(f"Writing of labels done. Path: {args.output_path}")
+        logger.debug(f"Writing of labels done. Path: {args.output_path}")
