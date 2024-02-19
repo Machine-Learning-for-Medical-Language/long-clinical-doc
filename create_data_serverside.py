@@ -6,7 +6,7 @@ import json
 import re
 import logging
 
-VERSION = "v20240209"
+VERSION = "v20240218"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -39,7 +39,7 @@ def hash_data(key, text_seed, seed="Landmark Center 401 park drive", algorithm='
         logger.warning(f"seed:{seed}")
         logger.warning(f"XORed:{xored}")
 
-    return xored
+    return xored[:32]
 
 def remove_newline(review):
     review = review.replace('&#039;', "'")
@@ -79,11 +79,12 @@ if __name__ == "__main__":
 
     for data_type, data in gold_data.items():
         outputs_dict = {}
+        outputs_dict_total = {}
         for data_idx, data_row in enumerate(data['data']):
 
             text = data_row['text']
 
-            if data_idx==0:
+            if data_idx==0 and data_type=="train":
                 debug = True
                 logger.debug(f"First sample: ")
             else: 
@@ -106,9 +107,14 @@ if __name__ == "__main__":
             json_path = os.path.join(args.output_path, f"{data_type}-labels.json")
         else:
             raise AttributeError("args.output_path should be a dir")
-            #json_path = args.output_path
                             
         with open(json_path, 'w') as outfp:
             json.dump(fp=outfp, obj=outputs_dict, indent=2)
 
-        logger.debug(f"Writing of labels done. Path: {args.output_path}")
+        outputs_dict_total.update(outputs_dict)
+
+    json_path = os.path.join(args.output_path, f"labels.json")
+    with open(args.output_path, 'w') as outfp:
+        json.dump(fp=outfp, obj=outputs_dict, indent=2)
+
+    logger.debug(f"Writing of labels done. Path: {args.output_path}")

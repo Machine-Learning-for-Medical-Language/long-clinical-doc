@@ -1,4 +1,4 @@
-import os
+import os, sys
 import argparse
 import hashlib
 import pandas as pd
@@ -6,14 +6,15 @@ import json
 import re
 import logging
 
-VERSION = "v20240209"
+VERSION = "v20240218"
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-"""
-    Set logger level as INFO. 
-    Set DEBUG for more detailed results.
-"""
+logger.setLevel(logging.DEBUG)
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+logger.addHandler(handler)
+
 
 def hash_data(key, text_seed, seed="Landmark Center 401 park drive", algorithm='sha256', debug=False):
     # Sanity check
@@ -39,7 +40,7 @@ def hash_data(key, text_seed, seed="Landmark Center 401 park drive", algorithm='
         logger.warning(f"seed:{seed}")
         logger.warning(f"XORed:{xored}")
 
-    return xored
+    return xored[:32]
 
 def remove_newline(review):
     review = review.replace('&#039;', "'")
@@ -56,13 +57,13 @@ if __name__ == "__main__":
         description="Create Long Clinical Document Benchmark datasets"
     )
     parser.add_argument(
-        "--label_path", required=True, help="A gold annotation json file"
+        "--label_path", required=True, help="A gold annotation json file (label.json)"
     )
     parser.add_argument(
         "--discharge_path", required=True, help="Path to discharge.csv file"
     )
     parser.add_argument(
-        "--output_path", required=True, help="A path to save a full dataset (json format)"
+        "--output_path", required=True, help="A path to save full dataset files (json format)"
     )
     args = parser.parse_args()
 
@@ -73,7 +74,7 @@ if __name__ == "__main__":
     with open(args.label_path) as goldfp:
         gold_data = json.load(goldfp)
 
-    outputs_dict = {}
+    outputs_dict_total = {}
     
     for data_idx, data_row in data.iterrows():
         if data_row['note_id'] not in gold_data:
@@ -96,14 +97,27 @@ if __name__ == "__main__":
             debug=debug
             )
     
-        outputs_dict[hashed] = {
+        outputs_dict_total[hashed] = {
             "text": text,
             "out_hospital_mortality_30": gold_data["out_hospital_mortality_30"],
             "data_type": gold_data["data_type"],
         }
     
     for data_type in ["train", "dev", "test"]:
+
+        outputs_list = []
+        for key, value in outputs_dict_total.items():
+            if value['data_type']==data_type:
+                value.update({"id":key})
+                outputs_list.append(value)
+        
+        outputs_dict = {
+            'data':outputs_list
+        }
+
         with open(os.path.join(args.output_path, f"{data_type}.json"), 'w') as outfp:
             json.dump(fp=outfp, obj=outputs_dict, indent=2)
+
+        logger.warning(f"Writing of {data_type}.json done. # of datapoints: {len(outputs_list)}")
 
     logger.debug(f"Writing of benchmark dataset done. Path: {args.output_path}")
