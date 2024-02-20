@@ -5,6 +5,7 @@ import pandas as pd
 import json
 import re
 import logging
+from tqdm import tqdm
 
 VERSION = "v20240218"
 
@@ -15,6 +16,7 @@ handler = logging.StreamHandler(sys.stdout)
 handler.setLevel(logging.INFO)
 logger.addHandler(handler)
 
+normal_data_count = {"train":34759, "dev":7505, "test":7568}
 
 def hash_data(key, text_seed, seed="Landmark Center 401 park drive", algorithm='sha256', debug=False):
     # Sanity check
@@ -75,11 +77,8 @@ if __name__ == "__main__":
         gold_data = json.load(goldfp)
 
     outputs_dict_total = {}
-    
-    for data_idx, data_row in data.iterrows():
-        if data_row['note_id'] not in gold_data:
-            continue
 
+    for data_idx, data_row in tqdm(data.iterrows(), total=len(data)):
         text = remove_newline(data_row['text'])
 
         if data_idx==0:
@@ -97,10 +96,13 @@ if __name__ == "__main__":
             debug=debug
             )
     
+        if hashed not in gold_data:
+            continue
+
         outputs_dict_total[hashed] = {
             "text": text,
-            "out_hospital_mortality_30": gold_data["out_hospital_mortality_30"],
-            "data_type": gold_data["data_type"],
+            "out_hospital_mortality_30": gold_data[hashed]["out_hospital_mortality_30"],
+            "data_type": gold_data[hashed]["data_type"],
         }
     
     for data_type in ["train", "dev", "test"]:
@@ -119,5 +121,8 @@ if __name__ == "__main__":
             json.dump(fp=outfp, obj=outputs_dict, indent=2)
 
         logger.warning(f"Writing of {data_type}.json done. # of datapoints: {len(outputs_list)}")
+        if len(outputs_list) != normal_data_count[data_type]:
+            logger.critical(f"WARNING: The number of datapoints is not matching with the author's processing results!"+\
+            "Please contact the authors of the benchmark dataset.")
 
     logger.debug(f"Writing of benchmark dataset done. Path: {args.output_path}")

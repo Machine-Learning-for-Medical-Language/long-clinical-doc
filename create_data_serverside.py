@@ -1,4 +1,4 @@
-import os
+import os, sys
 import argparse
 import hashlib
 import pandas as pd
@@ -10,10 +10,10 @@ VERSION = "v20240218"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-"""
-    Set logger level as INFO. 
-    Set DEBUG for more detailed results.
-"""
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+logger.addHandler(handler)
 
 def hash_data(key, text_seed, seed="Landmark Center 401 park drive", algorithm='sha256', debug=False):
     # Sanity check
@@ -77,9 +77,9 @@ if __name__ == "__main__":
             gold_data[data_type] = json.load(goldfp)
 
 
+    outputs_dict_total = {}
     for data_type, data in gold_data.items():
         outputs_dict = {}
-        outputs_dict_total = {}
         for data_idx, data_row in enumerate(data['data']):
 
             text = data_row['text']
@@ -115,6 +115,6 @@ if __name__ == "__main__":
 
     json_path = os.path.join(args.output_path, f"labels.json")
     with open(json_path, 'w') as outfp:
-        json.dump(fp=outfp, obj=outputs_dict, indent=2)
+        json.dump(fp=outfp, obj=outputs_dict_total, indent=2)
 
-    logger.debug(f"Writing of labels done. Path: {json_path}")
+    logger.info(f"Writing of labels done. Path: {json_path}")

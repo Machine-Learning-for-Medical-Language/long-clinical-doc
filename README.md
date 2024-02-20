@@ -56,6 +56,7 @@ The path to discharge.csv (3.3G) is stored in `$NOTE_PATH`
 ```bash
 shasum -a 1 discharge.csv # sha1 value
 # -> c4f0cfcd00bb8cbb118b1613a5c93f31a361e82b  discharge.csv
+# Or a9ac402818385f6ab5a574b4516abffde95d641a  discharge.csv (old version)
 ```
 
 3. Clone this repository 
@@ -69,7 +70,7 @@ cd long-clinical-doc
 4. Merge notes and the labels
 ```bash
 export TASK_NAME="out_hos_30days_mortality"
-export LABEL_PATH=${TASK_NAME}
+export LABEL_PATH=${TASK_NAME}/labels.json
 export OUTPUT_PATH=${TASK_NAME} 
 
 python create_data.py \
