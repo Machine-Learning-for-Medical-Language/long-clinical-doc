@@ -15,9 +15,9 @@ Future plans:
 * Demo codes are available on [CNLPT library](https://github.com/Machine-Learning-for-Medical-Language/cnlp_transformers) as stated in the paper. We will soon release tutorial documents for replicating the results. 
 
 ## License:
-This repository only provides hashed (using one-way encryption) document ids and the labels of each datapoint. You will need to download notes from PhysioNet.org after fully executed MIMIC-VI data use agreement. Agreeing to [PhysioNet Credentialed Health Data Use Agreement 1.5.0](https://physionet.org/content/mimiciv/view-dua/2.2/) and [PhysioNet Credentialed Health Data License 1.5.0](https://physionet.org/content/mimiciv/view-license/2.2/) is required to utilize the benchmark dataset. 
+This repository only provides hashed (using one-way encryption) document ids and the labels of each datapoint. You will need to download notes from PhysioNet.org after fully executed MIMIC-IV data use agreement. Agreeing to [PhysioNet Credentialed Health Data Use Agreement 1.5.0](https://physionet.org/content/mimiciv/view-dua/2.2/) and [PhysioNet Credentialed Health Data License 1.5.0](https://physionet.org/content/mimiciv/view-license/2.2/) is required to utilize the benchmark dataset. 
 
-**Please get access to both [MIMIC-VI v2.2](https://physionet.org/content/mimiciv/2.2/) and [MIMIC-IV-Note v2.2](https://physionet.org/content/mimic-iv-note/2.2/).**
+**Please get access to both [MIMIC-IV v2.2](https://physionet.org/content/mimiciv/2.2/) and [MIMIC-IV-Note v2.2](https://physionet.org/content/mimic-iv-note/2.2/).**
 
 
 <hr>
@@ -35,7 +35,7 @@ Note that the integrity does not check the order of the instances in datasets.
 ### Folder structure
 
 ```bash
-create_data.py : Code that merges labels.json with MIMIC-VI note data. 
+create_data.py : Code that merges labels.json with MIMIC-IV note data. 
 create_data_serverside.py : (Internal use only)
 ```
 Please note that `create_data_serverside.py` is the code the authors used to extract labels from pre-processed data. It is not required for users to run the code.
