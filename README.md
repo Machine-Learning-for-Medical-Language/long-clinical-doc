@@ -1,21 +1,21 @@
-# LCD benckmark: Long clinical document benchmark on mortality prediction
+# LCD benchmark: Long Clinical Document Benchmark on Mortality Prediction
 
 
-Paper under review. Citation information and paper informaion will follow.
+Paper under review. Citation information and paper information will follow.
 
 ### Platforms
 
 [Link to LCD benchmark CodaBench](TBA)
 
-* LCD benchmark suports CodaBench, which is an online dataset evaluation platform. Please submit your model's output through CodaBench and compare it with others. 
+* LCD benchmark supports CodaBench, which is an online dataset evaluation platform. Please submit your model's output through CodaBench and compare it with others. 
 
 Future plans:
-* Full preprocessing code will available soon.
+* Full preprocessing code will be available soon.
 * We are planning to expand our data distribution platforms
 * Demo codes are available on [CNLPT library](https://github.com/Machine-Learning-for-Medical-Language/cnlp_transformers) as stated in the paper. We will soon release tutorial documents for replicating the results. 
 
 ## License:
-This repository only provides hashed (i.e. one-way encryption) document ids and the labels of each datapoints. You will need to download notes from PhysioNet.org with fully executed MIMIC-VI data use agreement. Agreeing to [PhysioNet Credentialed Health Data Use Agreement 1.5.0](https://physionet.org/content/mimiciv/view-dua/2.2/) and [PhysioNet Credentialed Health Data License 1.5.0](https://physionet.org/content/mimiciv/view-license/2.2/) is required to utilize the benchmark dataset. 
+This repository only provides hashed (using one-way encryption) document ids and the labels of each datapoint. You will need to download notes from PhysioNet.org after fully executed MIMIC-VI data use agreement. Agreeing to [PhysioNet Credentialed Health Data Use Agreement 1.5.0](https://physionet.org/content/mimiciv/view-dua/2.2/) and [PhysioNet Credentialed Health Data License 1.5.0](https://physionet.org/content/mimiciv/view-license/2.2/) is required to utilize the benchmark dataset. 
 
 **Please get access to both [MIMIC-VI v2.2](https://physionet.org/content/mimiciv/2.2/) and [MIMIC-IV-Note v2.2](https://physionet.org/content/mimic-iv-note/2.2/).**
 
@@ -25,18 +25,18 @@ This repository only provides hashed (i.e. one-way encryption) document ids and 
 ## How to prepare the dataset
 
 #### Environments: 
-We strongly recommand to use Python version over 3.9.
+We strongly recommend to use Python version 3.9 or higher.
 <br>The example codes are tested on Ubuntu 22.04 (python v3.10.12) and MacOS v13.5.2 (python v3.9.6).
 <br>pandas and tqdm are required. To install these: `pip install -r requirements.txt`
 
 Please pay attention to the message (stdout) at the end of processing run, as it will tell the integrity of the created data.
-Note that the integrety do not check the order of the instances in datasets.
+Note that the integrity does not check the order of the instances in datasets.
 
 ### Folder structure
 
 ```bash
 create_data.py : Code that merges labels.json with MIMIC-VI note data. 
-create_data_serverside.py
+create_data_serverside.py : (Internal use only)
 ```
 Please note that `create_data_serverside.py` is the code the authors used to extract labels from pre-processed data. It is not required for users to run the code.
 
@@ -80,7 +80,7 @@ python create_data.py \
  --output_path ${OUTPUT_PATH}
 ```
 
-5. Please make it sure to check the number of processed datapoints. 
+5. Please make sure to check the number of processed datapoints. 
 If the numbers match the values written below, then the contents of the datasets are identical to our version. 
 (Note that this integrity check does not verify the order of instances in the datasets.)
 ```
