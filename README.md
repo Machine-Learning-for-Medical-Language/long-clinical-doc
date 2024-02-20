@@ -27,9 +27,10 @@ This repository only provides hashed (i.e. one-way encryption) document ids and 
 #### Environments: 
 We strongly recommand to use Python version over 3.9.
 <br>The example codes are tested on Ubuntu 22.04 (python v3.10.12) and MacOS v13.5.2 (python v3.9.6).
+<br>pandas and tqdm are required. To install these: `pip install -r requirements.txt`
 
-Please pay attention to the message (stdout) as it will tell the integrity of the created data. Note that the integrety do not check the order of the dataset. 
-
+Please pay attention to the message (stdout) at the end of processing run, as it will tell the integrity of the created data.
+Note that the integrety do not check the order of the instances in datasets.
 
 ### Folder structure
 
@@ -79,7 +80,9 @@ python create_data.py \
  --output_path ${OUTPUT_PATH}
 ```
 
-5. Please make it sure to check the number of processed datapoints.
+5. Please make it sure to check the number of processed datapoints. 
+If the numbers match the values written below, then the contents of the datasets are identical to our version. 
+(Note that this integrity check does not verify the order of instances in the datasets.)
 ```
 Train: 34,759 
 Dev: 7,505
