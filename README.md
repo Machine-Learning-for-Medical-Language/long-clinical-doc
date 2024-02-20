@@ -5,7 +5,7 @@ Paper under review. Citation information and paper information will follow.
 
 ### Platforms
 
-[Link to LCD benchmark CodaBench](TBA)
+[Link to LCD benchmark CodaBench](https://www.codabench.org/competitions/2064)
 
 * LCD benchmark supports CodaBench, which is an online dataset evaluation platform. Please submit your model's output through CodaBench and compare it with others. 
 
