@@ -20,6 +20,8 @@ from torch.utils.data import Dataset, ConcatDataset, Subset
 import torchvision.transforms as tfms
 from PIL import Image
 import imageio
+import numpy as np
+from sklearn.metrics import f1_score, accuracy_score
 
 MIN_RES = 256
 MEAN = 0.4
@@ -121,7 +123,7 @@ def main(args):
     else:
         device = 'cpu'
  
-    train_dataset = dict_to_dataset(train_json, args[2], max_size=100)
+    train_dataset = dict_to_dataset(train_json, args[2], max_size=1000)
     dev_dataset = dict_to_dataset(dev_json, args[2], max_size=100)
 
     print("Done reading data and quitting!")
@@ -157,6 +159,32 @@ def main(args):
         print("Epoch %d loss: %0.9f" % (epoch, epoch_loss))
     torch.save(model, save_fn)
 
+    num_correct = num_wrong = 0
+    model.eval()
+
+    preds = np.zeros(len(dev_dataset))
+    test_labels = np.zeros(len(dev_dataset))
+
+    with torch.no_grad():
+        for ind in range(0, len(dev_dataset)):
+            matrix, label = dev_dataset[ind]
+            # label_ind = label_map[label]
+            test_labels[ind] = label
+            padded_matrix = torch.zeros(1, MIN_RES, MIN_RES)
+            logits = model(padded_matrix.to(device))
+            pred = np.argmax(logits.cpu().numpy(), axis=1)
+            preds[ind] = pred
+
+            if pred == label:
+                num_correct += 1
+            else:
+                num_wrong += 1
+            
+    # accuracy = num_correct / len(dev_dataset)
+    acc = accuracy_score(test_labels, preds)
+    print("Final accuracy on held out data was %f" % (acc))
+    f1 = f1_score(test_labels, preds, average=None)
+    print("F1 score is %s" % (str(f1)))
 
 if __name__ == '__main__':
     main(sys.argv[1:])
