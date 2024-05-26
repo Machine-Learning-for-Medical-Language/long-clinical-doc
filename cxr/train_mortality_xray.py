@@ -8,7 +8,8 @@
 import sys
 import os
 import json
-from os.path import join, exists
+from os.path import join, exists, dirname
+import logging
 
 from tqdm import tqdm
 
@@ -16,16 +17,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import (DataLoader, RandomSampler, TensorDataset)
-from torch.utils.data import Dataset, ConcatDataset, Subset
 import torchvision.transforms as tfms
+import torchvision.models as models
+import torchxrayvision as xrv
+
 from PIL import Image
 import imageio
 import numpy as np
 from sklearn.metrics import f1_score, accuracy_score
 
 MIN_RES = 256
-MEAN = 0.4
-STDEV = 0.2
+MEAN = 0.485
+STDEV = 0.229
 
 class BaselineMortalityPredictor(nn.Module):
     def __init__(self, shape, num_filters=32, kernel_size=5, pool_size=10):
@@ -64,7 +67,7 @@ class BaselineMortalityPredictor(nn.Module):
 cxr_train_transforms = tfms.Compose([
     tfms.ToPILImage(),
     tfms.RandomAffine((-5, 5), translate=None, scale=None, shear=(0.9, 1.1)),
-    tfms.RandomResizedCrop((MIN_RES, MIN_RES), scale=(0.5, 0.75), ratio=(0.95, 1.05), interpolation=Image.LANCZOS),
+    tfms.RandomResizedCrop((MIN_RES, MIN_RES), scale=(0.5, 0.75), ratio=(0.95, 1.05), interpolation=Image.Resampling.LANCZOS),
     tfms.ToTensor(),
     tfms.Normalize((MEAN,), (STDEV,))
 ])
@@ -82,7 +85,7 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1):
 
     padded_matrix = torch.zeros(num_insts, MIN_RES, MIN_RES)
     labels = []
-    for inst_num,inst in tqdm(enumerate(mimic_dict['data'])):
+    for inst in tqdm(mimic_dict['data']):
         if 'images' not in inst or len(inst['images']) == 0:
             # some instances to not have any xrays
             continue
@@ -100,7 +103,12 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1):
             break
 
     if len(labels) < num_insts:
-        raise Exception("Not enough data points in this dataset to satisfy the requested number of instances! %d vs. %d" % (len(labels), num_insts))
+        if max_size >= 0:
+            raise Exception("Not enough data points in this dataset to satisfy the requested number of instances! %d vs. %d" % (len(labels), num_insts))
+        else:
+            logging.warning("Missing some image files so actual dataset is smaller than number of instances: %d vs. %d. Truncating input feature matrix" % (len(labels), num_insts))
+            padded_matrix = padded_matrix[:len(labels)]
+
     dataset = TensorDataset(padded_matrix, torch.tensor(labels))
 
     return dataset
@@ -110,54 +118,100 @@ def main(args):
         sys.stderr.write('Required arguments: <train file> <dev file> <mimic-cxr-jpg root> <filename for saved model>\n')
         sys.exit(-1)
 
-    with open(args[0], 'rt') as fp:
-        train_json = json.load(fp)
-    
-    with open(args[1], 'rt') as fp:
-        dev_json = json.load(fp)
-    
-    save_fn = args[3]
-
+ 
     if torch.cuda.is_available():
         device = 'cuda' 
     else:
         device = 'cpu'
  
-    train_dataset = dict_to_dataset(train_json, args[2], max_size=1000)
-    dev_dataset = dict_to_dataset(dev_json, args[2], max_size=100)
 
-    print("Done reading data and quitting!")
 
     random_seed = 42
-    num_epochs = 10
-    batch_size = 8
+    num_epochs = 100
+    batch_size = 32
+    # 0.001 is Adam default
+    learning_rate=0.001
+    use_resnet = True
+    # chexnet not working
+    use_chexnet = False
 
-    sampler = RandomSampler(train_dataset)
-    dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size)
-    model = BaselineMortalityPredictor( (MIN_RES, MIN_RES) ) 
+    # model = BaselineMortalityPredictor( (MIN_RES, MIN_RES) ) 
+    if use_resnet:
+        model = models.resnet18(pretrained=True)
+        # need to modify the output layer for our label set (plus we don't care about their output space so those weights are not interesting to us)
+        # 512x2 for resnet18, 1024x2 for chex
+        model.fc = nn.Linear(512, 2)
+    elif use_chexnet:
+        model = xrv.models.DenseNet(weights="densenet121-res224-chex")
+        model.fc = nn.Linear(1024, 2)
+    else:
+        model = BaselineMortalityPredictor( (MIN_RES, MIN_RES) )
+
     model.zero_grad()
     model = model.to(device)
     loss_fct = nn.CrossEntropyLoss()
-    opt = torch.optim.Adam(model.parameters())
+    opt = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-    training_loss = 0
+    if args[0].endswith('.json'):
+        with open(args[0], 'rt') as fp:
+            train_json = json.load(fp)
+            train_dataset = dict_to_dataset(train_json, args[2], max_size=-1)
+            # with open(join(dirname(args[1]), 'train_cache.pt'), 'w') as fp:
+            out_file = join(dirname(args[1]), 'train_cache.pt')
+            torch.save(train_dataset, out_file)
+    else:
+        print("Loading training data from cache.")
+        train_dataset = torch.load(args[0])
+        
+    if args[1].endswith('.json'):    
+        with open(args[1], 'rt') as fp:
+            dev_json = json.load(fp)
+            dev_dataset = dict_to_dataset(dev_json, args[2], max_size=-1)
+            # with open(join(dirname(args[1]), 'dev_cache.pt'), 'w') as fp:
+            out_file = join(dirname(args[1]), 'dev_cache.pt')
+            torch.save(dev_dataset, out_file)
+    else:
+        print("Loading dev data from cache.")
+        dev_dataset = torch.load(args[1])
+
+    save_fn = args[3]
+    
+    sampler = RandomSampler(train_dataset)
+    dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size)
+
+    best_loss = -1
     for epoch in range(num_epochs):
         epoch_loss = 0.0
         #for count,ind in enumerate(train_inds):
-        for step, batch in enumerate(tqdm(dataloader, desc="Iteration")):
-
+        for batch in tqdm(dataloader, desc="Iteration"):
             batch = tuple(t.to(device) for t in batch)
             batch_data, batch_labels = batch
-            # add a empty 1 dimension here for the 1 channel so the model knows
-            # the first dimension is batch and not channels
-            logits = model(batch_data.unsqueeze(1).to(device))
+            opt.zero_grad()
+            if use_resnet:
+                # resnet expects 3 channels (RGB) but we have grayscale images
+                rgb_batch = torch.repeat_interleave(batch_data.unsqueeze(1), 3, dim=1)
+                logits = model(rgb_batch)
+            elif use_chexnet:
+                # Not working
+                logits = model(batch_data.unsqueeze(1).to(device)*341)
+            else:  # chexnet uses the deafult
+                # add a empty 1 dimension here for the 1 channel so the model knows
+                # the first dimension is batch and not channels
+                logits = model(batch_data.unsqueeze(1).to(device))
             loss = loss_fct(logits, batch_labels.to(device))
             loss.backward()
             epoch_loss += loss.item()
             opt.step()
             model.zero_grad()
         print("Epoch %d loss: %0.9f" % (epoch, epoch_loss))
-    torch.save(model, save_fn)
+        if best_loss < 0 or epoch_loss < best_loss:
+            best_loss = epoch_loss
+            print("Saving model")
+            torch.save(model, save_fn)
+    #torch.save(model, save_fn)
+
+    # load the best model rather than the most recent
+    model = torch.load(save_fn)
 
     num_correct = num_wrong = 0
     model.eval()
@@ -170,7 +224,15 @@ def main(args):
             matrix, label = dev_dataset[ind]
             # label_ind = label_map[label]
             test_labels[ind] = label
-            padded_matrix = torch.zeros(1, MIN_RES, MIN_RES)
+            if use_resnet:
+                padded_matrix = torch.zeros(1, 3, MIN_RES, MIN_RES)
+                padded_matrix[0,0] = matrix
+                padded_matrix[0,1] = matrix
+                padded_matrix[0,2] = matrix
+            else: # chexnet can use the default
+                padded_matrix = torch.zeros(1, MIN_RES, MIN_RES)
+                padded_matrix[0] = matrix
+
             logits = model(padded_matrix.to(device))
             pred = np.argmax(logits.cpu().numpy(), axis=1)
             preds[ind] = pred
