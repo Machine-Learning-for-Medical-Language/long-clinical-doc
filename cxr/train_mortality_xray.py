@@ -26,7 +26,8 @@ import torchxrayvision as xrv
 from PIL import Image
 import imageio
 import numpy as np
-from sklearn.metrics import f1_score, accuracy_score
+from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
+
 
 MIN_RES = 256
 MEAN = 0.485
@@ -46,7 +47,14 @@ cxr_train_transforms = tfms.Compose([
     tfms.Normalize((MEAN,), (STDEV,))
 ])
 
-def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, image_selection='last'):
+cxr_infer_transforms = tfms.Compose([
+    tfms.ToPILImage(),
+    tfms.CenterCrop(size=(MIN_RES,MIN_RES)),
+    tfms.ToTensor(),
+    tfms.Normalize((MEAN,), (STDEV,))
+])
+
+def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selection='last'):
     num_insts = 0
     for inst in mimic_dict['data']:
         if 'images' in inst.keys() and len(inst['images']) > 0:
@@ -72,8 +80,8 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, image_selection='last')
                 #print("Skipping file %f due to missing image" % (img_path))
                 continue
             image = imageio.imread(img_path, mode='F')
-            padded_matrix[len(labels), :, :] = cxr_train_transforms(image)
-            labels.append(inst['mortality'])
+            padded_matrix[len(labels), :, :] = cxr_train_transforms(image) if train else cxr_infer_transforms(image)
+            labels.append(inst['out_hospital_mortality_30'])
             if len(labels) >= num_insts:
                 break
 
@@ -130,11 +138,13 @@ def run_one_eval(model, eval_dataset, device, loss_fct):
     acc = accuracy_score(test_labels, preds)
     #print("Final accuracy on held out data was %f" % (acc))
     f1 = f1_score(test_labels, preds, average=None)
+    rec = recall_score(test_labels, preds, average=None)
+    prec = precision_score(test_labels, preds, average=None)
     #print("F1 score is %s" % (str(f1)))
-    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1}
+    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec}
 
 def main(args):
-    if len(args) < 3:
+    if len(args) < 4:
         sys.stderr.write('Required arguments: <train file> <dev file> <mimic-cxr-jpg root> <filename for saved model>\n')
         sys.exit(-1)
  
@@ -144,8 +154,8 @@ def main(args):
         device = 'cpu'
 
     random_seed = 42
-    num_epochs = 100
-    batch_size = 32
+    num_epochs = 200
+    batch_size = 64
     eval_freq = 10
     # 0.001 is Adam default
     learning_rate=0.0001
@@ -172,9 +182,9 @@ def main(args):
         with open(args[0], 'rt') as fp:
             train_json = json.load(fp)
             if use_mc:
-                train_dataset = dict_to_dataset(train_json, args[2], max_size=-1, image_selection='all')
+                train_dataset = dict_to_dataset(train_json, args[2], max_size=-1, train=True, image_selection='all')
             else:
-                train_dataset = dict_to_dataset(train_json, args[2], max_size=-1)
+                train_dataset = dict_to_dataset(train_json, args[2], max_size=-1, train=True)
             out_file = join(dirname(args[1]), 'train_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
             torch.save(train_dataset, out_file)
     else:
@@ -185,9 +195,9 @@ def main(args):
         with open(args[1], 'rt') as fp:
             dev_json = json.load(fp)
             if use_mc:
-                dev_dataset = dict_to_dataset(dev_json, args[2], max_size=-1, image_selection='all')
+                dev_dataset = dict_to_dataset(dev_json, args[2], max_size=-1, train=False, image_selection='all')
             else:
-                dev_dataset = dict_to_dataset(dev_json, args[2], max_size=-1)
+                dev_dataset = dict_to_dataset(dev_json, args[2], max_size=-1, train=False)
 
             out_file = join(dirname(args[1]), 'dev_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
             torch.save(dev_dataset, out_file)
