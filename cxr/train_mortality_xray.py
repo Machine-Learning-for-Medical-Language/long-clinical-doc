@@ -14,7 +14,7 @@ import logging
 from tqdm import tqdm
 
 from models.BaselineModel import BaselineMortalityPredictor
-from models.MultiChannelModel import MultiChannelMortalityPredictor
+from models.MultiChannelModel import MultiChannelMortalityPredictor, VariableLengthImageDataset, collate_fn
 
 import torch
 import torch.nn as nn
@@ -29,14 +29,14 @@ import numpy as np
 from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
 
 
-MIN_RES = 256
+MIN_RES = 512
 MEAN = 0.485
 STDEV = 0.229
 use_resnet = False
 # chexnet not working
 use_chexnet = False
 # multi-channel model
-use_mc = False
+use_mc = True
 
 # From pytorch-cxr
 cxr_train_transforms = tfms.Compose([
@@ -78,7 +78,7 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
             if not exists(img_path):
                 # this should only happen if we are still processing the images.
                 #print("Skipping file %f due to missing image" % (img_path))
-                continue
+                raise Exception("Path to image does not exist: %s" % (img_path))
             image = imageio.imread(img_path, mode='F')
             padded_matrix[len(labels), :, :] = cxr_train_transforms(image) if train else cxr_infer_transforms(image)
             labels.append(inst['out_hospital_mortality_30'])
@@ -95,8 +95,24 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
         dataset = TensorDataset(padded_matrix, torch.tensor(labels))
     elif image_selection == 'all':
         # need a dataset type that allows for different instances to have different numbers of images.
-        dataset = None
-        raise NotImplementedError()
+        ## create a list of lists of image paths for the dataset
+        data_paths = []
+        labels = []
+        for inst in tqdm(mimic_dict['data']):
+            if 'images' not in inst or len(inst['images']) == 0:
+                continue
+            
+            inst_paths = []
+            for image in inst['images']:
+                img_path = join(mimic_path, 'files', image['path'][:-4] + '_%d_resized.jpg' % (MIN_RES))
+                inst_paths.append(img_path)
+
+            if not exists(img_path):
+                raise Exception("Path to image does not exist: %s" % (img_path))
+            
+            data_paths.append(inst_paths)
+            labels.append(inst['out_hospital_mortality_30'])
+        dataset = VariableLengthImageDataset(data_paths, labels, cxr_train_transforms)
 
     return dataset
 
@@ -144,8 +160,8 @@ def run_one_eval(model, eval_dataset, device, loss_fct):
     return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec}
 
 def main(args):
-    if len(args) < 4:
-        sys.stderr.write('Required arguments: <train file> <dev file> <mimic-cxr-jpg root> <filename for saved model>\n')
+    if len(args) < 3:
+        sys.stderr.write('Required arguments: <train file> <dev file> <mimic-cxr-jpg root> [filename for saved model]\n')
         sys.exit(-1)
  
     if torch.cuda.is_available():
@@ -155,7 +171,7 @@ def main(args):
 
     random_seed = 42
     num_epochs = 200
-    batch_size = 64
+    batch_size = 1
     eval_freq = 10
     # 0.001 is Adam default
     learning_rate=0.0001
@@ -205,10 +221,15 @@ def main(args):
         print("Loading dev data from cache.")
         dev_dataset = torch.load(args[1])
 
-    save_fn = args[3]
+    save_fn = ''
+    if len(args) == 4:
+        save_fn = args[3]
     
     sampler = RandomSampler(train_dataset)
-    dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size)
+    if use_mc:
+        dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size, collate_fn=collate_fn)
+    else:
+        dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size)
 
     best_loss = -1
     all_dev_results = {}
@@ -225,12 +246,12 @@ def main(args):
                 logits = model(rgb_batch)
             elif use_chexnet:
                 # Not working
-                logits = model(batch_data.unsqueeze(1).to(device)*341)
-            else:  # chexnet uses the deafult
+                logits = model(batch_data.unsqueeze(1)*341)
+            else:
                 # add a empty 1 dimension here for the 1 channel so the model knows
                 # the first dimension is batch and not channels
-                logits = model(batch_data.unsqueeze(1).to(device))
-            loss = loss_fct(logits, batch_labels.to(device))
+                logits = model(batch_data.unsqueeze(1))
+            loss = loss_fct(logits, batch_labels)
             loss.backward()
             epoch_loss += loss.item()
             opt.step()
@@ -246,12 +267,14 @@ def main(args):
 
         if best_loss < 0 or epoch_loss < best_loss:
             best_loss = epoch_loss
-            print("Saving model")
-            torch.save(model, save_fn)
-    #torch.save(model, save_fn)
+            if save_fn != '':
+                print("Saving model")
+                torch.save(model, save_fn)
 
     # load the best model rather than the most recent
-    model = torch.load(save_fn)
+    if save_fn != '':
+        model = torch.load(save_fn)
+
     final_dev_results = run_one_eval(model, dev_dataset, device, loss_fct)
     print("Final dev results: %s" % str(final_dev_results))
 

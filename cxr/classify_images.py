@@ -44,7 +44,7 @@ def main(args):
             elif label == 0:
                 negative += 1
             else:
-                raise Error("Unexpected label value %s" % (str(label)))
+                raise Exception("Unexpected label value %s" % (str(label)))
     
     size = positive + negative
     prevalence = float(positive) / float(size)
@@ -58,7 +58,7 @@ def main(args):
         elif label == 0:
             negative += 1
         else:
-            raise Error("Unexepcted label value %s" % (str(label)))
+            raise Exception("Unexepcted label value %s" % (str(label)))
     
     size = positive + negative
     prevalence = float(positive) / float(size)
