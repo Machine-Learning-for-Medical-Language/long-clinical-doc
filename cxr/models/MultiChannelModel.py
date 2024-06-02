@@ -51,21 +51,17 @@ class VariableLengthImageDataset(Dataset):
             data_paths (list of lists): List where each element is a list of file paths to images for a single instance.
             transform (callable, optional): Optional transform to be applied on an image.
         """
-        self.data_paths = data_paths
         self.labels = labels
-        self.transform = transform
+        image_paths = self.data_paths[idx]
+        self.images = [imageio.imread(img_path, mode='F') for img_path in data_paths]
+        if transform:
+            self.images = [transform(image) for image in images]
 
     def __len__(self):
         return len(self.data_paths)
 
     def __getitem__(self, idx):
-        image_paths = self.data_paths[idx]
-        # images = [Image.open(image_path) for image_path in image_paths]
-        images = [imageio.imread(img_path, mode='F') for img_path in image_paths]
-        if self.transform:
-            images = [self.transform(image) for image in images]
-        
-        return images, self.labels[idx]
+        return self.images[idx], self.labels[idx]
 
 
 # Custom collate function to handle variable-length batches

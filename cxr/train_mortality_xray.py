@@ -148,7 +148,7 @@ def run_one_eval(model, eval_dataset, device, loss_fct):
                 num_correct += 1
             else:
                 num_wrong += 1
-        print("Dev loss is %f" % (dev_loss))
+        #print("Dev loss is %f" % (dev_loss))
 
     # accuracy = num_correct / len(dev_dataset)
     acc = accuracy_score(test_labels, preds)
