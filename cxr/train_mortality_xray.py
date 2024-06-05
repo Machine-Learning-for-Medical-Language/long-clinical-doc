@@ -28,7 +28,6 @@ import imageio
 import numpy as np
 from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
 
-
 MIN_RES = 512
 MEAN = 0.485
 STDEV = 0.229
@@ -93,27 +92,9 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
                 padded_matrix = padded_matrix[:len(labels)]
 
         dataset = TensorDataset(padded_matrix, torch.tensor(labels))
-    elif image_selection == 'all':
-        # need a dataset type that allows for different instances to have different numbers of images.
-        ## create a list of lists of image paths for the dataset
-        data_paths = []
-        labels = []
-        for inst in tqdm(mimic_dict['data']):
-            if 'images' not in inst or len(inst['images']) == 0:
-                continue
-            
-            inst_paths = []
-            for image in inst['images']:
-                img_path = join(mimic_path, 'files', image['path'][:-4] + '_%d_resized.jpg' % (MIN_RES))
-                inst_paths.append(img_path)
-
-            if not exists(img_path):
-                raise Exception("Path to image does not exist: %s" % (img_path))
-            
-            data_paths.append(inst_paths)
-            labels.append(inst['out_hospital_mortality_30'])
-        dataset = VariableLengthImageDataset(data_paths, labels, cxr_train_transforms)
-
+    else:
+        raise NotImplementedError("Image selection method %s is not implemented" % (image_selection))
+        
     return dataset
 
 def run_one_eval(model, eval_dataset, device, loss_fct):
@@ -134,12 +115,17 @@ def run_one_eval(model, eval_dataset, device, loss_fct):
                 padded_matrix[0,0] = matrix
                 padded_matrix[0,1] = matrix
                 padded_matrix[0,2] = matrix
+            elif use_mc:
+                # train shape is (batch_size, 1, num_images, res, res)
+                # shape from reader is (num_images, 1, res, res)
+                # we want (for evals of batch size 1) shape (1, 1, num_images, 512, 512)
+                padded_matrix = torch.permute(matrix, (1,0,2,3)).unsqueeze(dim=0)
             else: # chexnet can use the default
                 padded_matrix = torch.zeros(1, MIN_RES, MIN_RES)
                 padded_matrix[0] = matrix
 
             logits = model(padded_matrix.to(device))
-            loss = loss_fct(logits[0], label.to(device))
+            loss = loss_fct(logits[0], torch.tensor(label).to(device))
             dev_loss = loss.item()
             pred = np.argmax(logits.cpu().numpy(), axis=1)
             preds[ind] = pred
@@ -156,8 +142,9 @@ def run_one_eval(model, eval_dataset, device, loss_fct):
     f1 = f1_score(test_labels, preds, average=None)
     rec = recall_score(test_labels, preds, average=None)
     prec = precision_score(test_labels, preds, average=None)
+    prev = test_labels.sum() / len(test_labels)
     #print("F1 score is %s" % (str(f1)))
-    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec}
+    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec, 'prev': prev}
 
 def main(args):
     if len(args) < 3:
@@ -171,7 +158,7 @@ def main(args):
 
     random_seed = 42
     num_epochs = 200
-    batch_size = 1
+    batch_size = 8
     eval_freq = 10
     # 0.001 is Adam default
     learning_rate=0.0001
@@ -186,6 +173,8 @@ def main(args):
         model.fc = nn.Linear(1024, 2)
     elif use_mc:
         model = MultiChannelMortalityPredictor( (MIN_RES, MIN_RES) )
+        if args[1].endswith('.json'):
+            import bmemcached
     else:
         model = BaselineMortalityPredictor( (MIN_RES, MIN_RES) )
 
@@ -198,28 +187,31 @@ def main(args):
         with open(args[0], 'rt') as fp:
             train_json = json.load(fp)
             if use_mc:
-                train_dataset = dict_to_dataset(train_json, args[2], max_size=-1, train=True, image_selection='all')
+                raise Exception("For multi-channel models, dataset must be pre-processed first!")
             else:
                 train_dataset = dict_to_dataset(train_json, args[2], max_size=-1, train=True)
             out_file = join(dirname(args[1]), 'train_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
             torch.save(train_dataset, out_file)
-    else:
-        print("Loading training data from cache.")
+    elif args[0].endswith('.pt'):
+        print("Loading training data from cached pytorch file.")
         train_dataset = torch.load(args[0])
-        
+    elif args[0].endswith('.hdf5'):
+        train_dataset = VariableLengthImageDataset(args[0])
+
     if args[1].endswith('.json'):    
         with open(args[1], 'rt') as fp:
             dev_json = json.load(fp)
             if use_mc:
-                dev_dataset = dict_to_dataset(dev_json, args[2], max_size=-1, train=False, image_selection='all')
+                raise Exception("For multi-channel models, dataset must be pre-processed first!")
             else:
                 dev_dataset = dict_to_dataset(dev_json, args[2], max_size=-1, train=False)
-
             out_file = join(dirname(args[1]), 'dev_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
             torch.save(dev_dataset, out_file)
-    else:
+    elif args[1].endswith('.pt'):
         print("Loading dev data from cache.")
         dev_dataset = torch.load(args[1])
+    elif args[1].endswith('.hdf5'):
+        dev_dataset = VariableLengthImageDataset(args[1])
 
     save_fn = ''
     if len(args) == 4:
@@ -227,7 +219,7 @@ def main(args):
     
     sampler = RandomSampler(train_dataset)
     if use_mc:
-        dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size, collate_fn=collate_fn)
+        dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size, collate_fn=collate_fn, num_workers=8)
     else:
         dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size)
 

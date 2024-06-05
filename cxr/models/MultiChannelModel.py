@@ -5,6 +5,8 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
 import imageio
+from tqdm import tqdm
+import h5py
 
 class MultiChannelMortalityPredictor(nn.Module):
     def __init__(self, shape, num_filters=32, kernel_size=(1,5,5), pool_size=10):
@@ -45,24 +47,21 @@ class MultiChannelMortalityPredictor(nn.Module):
 
 
 class VariableLengthImageDataset(Dataset):
-    def __init__(self, data_paths, labels, transform=None):
+    def __init__(self, hdf5_fn):
         """
         Args:
-            data_paths (list of lists): List where each element is a list of file paths to images for a single instance.
-            transform (callable, optional): Optional transform to be applied on an image.
         """
-        self.labels = labels
-        image_paths = self.data_paths[idx]
-        self.images = [imageio.imread(img_path, mode='F') for img_path in data_paths]
-        if transform:
-            self.images = [transform(image) for image in images]
+        self.fp = h5py.File(hdf5_fn, "r")
+        self.labels = []
+        for idx in range(len(self)):
+            self.labels.append(self.fp['%d/label' % (idx)][()])
 
+    # This weird [()] syntax is just how you retrieve scalars in hdf5
     def __len__(self):
-        return len(self.data_paths)
+        return self.fp['/len/'][()]
 
     def __getitem__(self, idx):
-        return self.images[idx], self.labels[idx]
-
+        return torch.tensor(self.fp['%d/data' % (idx)]), self.labels[idx]
 
 # Custom collate function to handle variable-length batches
 def collate_fn(batch):
@@ -73,8 +72,9 @@ def collate_fn(batch):
     # Each instance has a list of images associated with it of variable size. Inside each batch, pad
     # out the lists with empty images then turn into a tensor
     for image_list in images_batch:
-        padded_list = image_list + [torch.zeros_like(image_list[0])] * (max_length - len(image_list))
-        padded_batch.append(torch.stack(padded_list))
+        # padded_list = image_list + [torch.zeros_like(image_list[0])] * (max_length - len(image_list))
+        padding = torch.zeros( (max_length-image_list.shape[0], 1, image_list.shape[2], image_list.shape[3] ) )
+        padded_batch.append(torch.cat([image_list, padding]))
     
     # squeeze the dimension corresponding to the grayscale channel, make sure to specify dim=2 otherwise
     # it could squeeze the batch dimension if batch_size=1
