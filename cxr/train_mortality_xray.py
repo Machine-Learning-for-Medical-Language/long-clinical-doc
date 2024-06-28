@@ -10,6 +10,8 @@ import os
 import json
 from os.path import join, exists, dirname
 import logging
+from dataclasses import dataclass, field
+from argparse import ArgumentParser
 
 from tqdm import tqdm
 
@@ -22,22 +24,23 @@ from torch.utils.data import (DataLoader, RandomSampler, TensorDataset)
 import torchvision.transforms as tfms
 import torchvision.models as models
 import torchxrayvision as xrv
+from transformers import HfArgumentParser
 
 from PIL import Image
 import imageio
 import numpy as np
 from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
 
+RESNET = 'resnet'
+BASELINE = "baseline"
+MULTICHANNEL = "mc"
+CHEXNET = "chexnet"
+
+# From pytorch-cxr
 MIN_RES = 512
 MEAN = 0.485
 STDEV = 0.229
-use_resnet = False
-# chexnet not working
-use_chexnet = False
-# multi-channel model
-use_mc = True
 
-# From pytorch-cxr
 cxr_train_transforms = tfms.Compose([
     tfms.ToPILImage(),
     tfms.RandomAffine((-5, 5), translate=None, scale=None, shear=(0.9, 1.1)),
@@ -97,7 +100,7 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
         
     return dataset
 
-def run_one_eval(model, eval_dataset, device, loss_fct):
+def run_one_eval(model, eval_dataset, device, loss_fct, model_type):
     num_correct = num_wrong = 0
     model.eval()
 
@@ -110,12 +113,12 @@ def run_one_eval(model, eval_dataset, device, loss_fct):
             matrix, label = eval_dataset[ind]
             # label_ind = label_map[label]
             test_labels[ind] = label
-            if use_resnet:
+            if model_type==RESNET:
                 padded_matrix = torch.zeros(1, 3, MIN_RES, MIN_RES)
                 padded_matrix[0,0] = matrix
                 padded_matrix[0,1] = matrix
                 padded_matrix[0,2] = matrix
-            elif use_mc:
+            elif model_type==MULTICHANNEL:
                 # train shape is (batch_size, 1, num_images, res, res)
                 # shape from reader is (num_images, 1, res, res)
                 # we want (for evals of batch size 1) shape (1, 1, num_images, 512, 512)
@@ -146,36 +149,82 @@ def run_one_eval(model, eval_dataset, device, loss_fct):
     #print("F1 score is %s" % (str(f1)))
     return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec, 'prev': prev}
 
-def main(args):
-    if len(args) < 3:
-        sys.stderr.write('Required arguments: <train file> <dev file> <mimic-cxr-jpg root> [filename for saved model]\n')
-        sys.exit(-1)
- 
+@dataclass
+class TrainingArguments:
+    train_file: str = field(
+        metadata={"help": ".json, .pt, or .hdf5 file for training"}
+    )
+    eval_file: str = field(
+        metadata={"help": ".json, .pt, or .hdf5 file for evaluating during training"}
+    )
+    cxr_root: str = field(
+        default=None,
+        metadata={"help": "Path to mimic-cxr-jpg data (root of the dir for a specific version)"}
+    )
+    num_training_epochs: int = field(
+        default=10,
+        metadata={"help": "Number of passes to take over the training dataset"}
+    )
+    model_filename: str = field(
+        default=None,
+        metadata={"help": "Filename to write saved .pt model."}
+    )
+    seed: int = field(
+        default=42,
+        metadata={"help":"Random seed to use during training (currently has no effect)"}
+    )
+    batch_size: int = field(
+        default=10,
+        metadata={"help":"Number of instances to include in each training batch"}
+    )
+    eval_freq: int = field(
+        default=10,
+        metadata={"help":"How often do evals in terms of number of training epochs"}
+    )
+    learning_rate: float = field(
+        default=0.001,
+        metadata={"help":"Learning rate to pass to optimizer"}
+    )
+    model: str = field(
+        default='baseline',
+        metadata={"choices": [RESNET, MULTICHANNEL, BASELINE, CHEXNET],
+                  "help": "Which neural model to use"}
+    )
+     
+def main(args): 
     if torch.cuda.is_available():
         device = 'cuda' 
     else:
         device = 'cpu'
 
-    random_seed = 42
-    num_epochs = 200
-    batch_size = 8
-    eval_freq = 10
+    parser = HfArgumentParser(TrainingArguments)
+    training_args, = parser.parse_args_into_dataclasses()
+    batch_size = training_args.batch_size
+    eval_freq = training_args.eval_freq
     # 0.001 is Adam default
-    learning_rate=0.0001
+    learning_rate=training_args.learning_rate
+    use_resnet = training_args.model == 'resnet'
+    use_chexnet = False
+    use_mc = training_args.model == 'mc'
 
     if use_resnet:
+        print("Using resnet model")
         model = models.resnet18(pretrained=True)
         # need to modify the output layer for our label set (plus we don't care about their output space so those weights are not interesting to us)
         # 512x2 for resnet18, 1024x2 for chex
         model.fc = nn.Linear(512, 2)
     elif use_chexnet:
+        print("Using chexnet: this isn't working right now")
+        raise NotImplementedError("Chexnet is not working now.")
         model = xrv.models.DenseNet(weights="densenet121-res224-chex")
         model.fc = nn.Linear(1024, 2)
     elif use_mc:
+        print("Using multi-channel model")
         model = MultiChannelMortalityPredictor( (MIN_RES, MIN_RES) )
-        if args[1].endswith('.json'):
+        if training_args.eval_file.endswith('.json'):
             import bmemcached
     else:
+        print("Using baseline single image (CNN) model")
         model = BaselineMortalityPredictor( (MIN_RES, MIN_RES) )
 
     model.zero_grad()
@@ -183,40 +232,36 @@ def main(args):
     loss_fct = nn.CrossEntropyLoss()
     opt = torch.optim.Adam(model.parameters(), lr=learning_rate)
     
-    if args[0].endswith('.json'):
-        with open(args[0], 'rt') as fp:
+    if training_args.train_file.endswith('.json'):
+        with open(training_args.train_file, 'rt') as fp:
             train_json = json.load(fp)
             if use_mc:
                 raise Exception("For multi-channel models, dataset must be pre-processed first!")
             else:
-                train_dataset = dict_to_dataset(train_json, args[2], max_size=-1, train=True)
-            out_file = join(dirname(args[1]), 'train_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
+                train_dataset = dict_to_dataset(train_json, training_args.cxr_root, max_size=-1, train=True)
+            out_file = join(dirname(training_args.train_file), 'train_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
             torch.save(train_dataset, out_file)
-    elif args[0].endswith('.pt'):
+    elif training_args.train_file.endswith('.pt'):
         print("Loading training data from cached pytorch file.")
-        train_dataset = torch.load(args[0])
-    elif args[0].endswith('.hdf5'):
-        train_dataset = VariableLengthImageDataset(args[0])
+        train_dataset = torch.load(training_args.train_file)
+    elif training_args.train_file.endswith('.hdf5'):
+        train_dataset = VariableLengthImageDataset(training_args.train_file)
 
-    if args[1].endswith('.json'):    
-        with open(args[1], 'rt') as fp:
+    if training_args.eval_file.endswith('.json'):    
+        with open(training_args.eval_file, 'rt') as fp:
             dev_json = json.load(fp)
             if use_mc:
                 raise Exception("For multi-channel models, dataset must be pre-processed first!")
             else:
-                dev_dataset = dict_to_dataset(dev_json, args[2], max_size=-1, train=False)
-            out_file = join(dirname(args[1]), 'dev_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
+                dev_dataset = dict_to_dataset(dev_json, training_args.cxr_root, max_size=-1, train=False)
+            out_file = join(dirname(training_args.eval_file), 'dev_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
             torch.save(dev_dataset, out_file)
-    elif args[1].endswith('.pt'):
+    elif training_args.eval_file.endswith('.pt'):
         print("Loading dev data from cache.")
-        dev_dataset = torch.load(args[1])
-    elif args[1].endswith('.hdf5'):
-        dev_dataset = VariableLengthImageDataset(args[1])
-
-    save_fn = ''
-    if len(args) == 4:
-        save_fn = args[3]
-    
+        dev_dataset = torch.load(training_args.eval_file)
+    elif training_args.eval_file.endswith('.hdf5'):
+        dev_dataset = VariableLengthImageDataset(training_args.eval_file)
+ 
     sampler = RandomSampler(train_dataset)
     if use_mc:
         dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size, collate_fn=collate_fn, num_workers=8)
@@ -225,7 +270,7 @@ def main(args):
 
     best_loss = -1
     all_dev_results = {}
-    for epoch in range(num_epochs):
+    for epoch in range(training_args.num_training_epochs):
         epoch_loss = 0.0
         #for count,ind in enumerate(train_inds):
         for batch in tqdm(dataloader, desc="Iteration"):
@@ -250,7 +295,7 @@ def main(args):
             model.zero_grad()
         print("Epoch %d loss: %0.9f" % (epoch, epoch_loss))
         if epoch % eval_freq == 0:
-            dev_results = run_one_eval(model, dev_dataset, device, loss_fct)
+            dev_results = run_one_eval(model, dev_dataset, device, loss_fct, training_args.model)
             for result_key, result_val in dev_results.items():
                 print("Dev %s = %s" % (result_key, str(result_val)))
                 if result_key not in all_dev_results:
@@ -259,15 +304,15 @@ def main(args):
 
         if best_loss < 0 or epoch_loss < best_loss:
             best_loss = epoch_loss
-            if save_fn != '':
+            if training_args.model_filename:
                 print("Saving model")
-                torch.save(model, save_fn)
+                torch.save(model, training_args.model_filename)
 
     # load the best model rather than the most recent
-    if save_fn != '':
-        model = torch.load(save_fn)
+    if training_args.model_filename:
+        torch.load(training_args.model_filename)
 
-    final_dev_results = run_one_eval(model, dev_dataset, device, loss_fct)
+    final_dev_results = run_one_eval(model, dev_dataset, device, loss_fct, training_args.model)
     print("Final dev results: %s" % str(final_dev_results))
 
     print("Running dev results:")

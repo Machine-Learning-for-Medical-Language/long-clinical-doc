@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class BaselineMortalityPredictor(nn.Module):
-    def __init__(self, shape, num_filters=32, kernel_size=5, pool_size=10):
+    def __init__(self, shape, num_filters=128, kernel_size=5, pool_size=50):
 
         super(BaselineMortalityPredictor, self).__init__()
         # in = embed_dim, out = num_filters, kernel = 5

@@ -10,30 +10,19 @@ import h5py
 import torchvision.transforms as tfms
 from PIL import Image
 
-from train_mortality_xray import MEAN, STDEV, MIN_RES, cxr_train_transforms, cxr_infer_transforms
-
-# cxr_train_transforms = tfms.Compose([
-#     tfms.ToPILImage(),
-#     tfms.RandomAffine((-5, 5), translate=None, scale=None, shear=(0.9, 1.1)),
-#     tfms.RandomResizedCrop((MIN_RES, MIN_RES), scale=(0.5, 0.75), ratio=(0.95, 1.05), interpolation=Image.Resampling.LANCZOS),
-# ])
-# cxr_infer_transforms = tfms.Compose([
-#     tfms.ToPILImage(),
-#     tfms.Resize(size=(MIN_RES,MIN_RES), interpolation=Image.Resampling.LANCZOS),
-#     tfms.Normalize((MEAN,), (STDEV,))
-# ])
+from train_mortality_xray import MIN_RES, cxr_train_transforms, cxr_infer_transforms
 
 def main(args):
     if len(args) < 2:
-        sys.stderr.write("Required argument(s): <Json file path> <mimic cxr jpg path> <output filename>\n")
+        sys.stderr.write("Required argument(s): <json file path> <mimic cxr jpg path> <output filename>\n")
         sys.exit(-1)
 
     input_json, mimic_path, output_fn = args
     if 'train' in input_json:
-        logging.info("Using training transforms since the string 'train' was found in the input file")
+        print("Using training transforms since the string 'train' was found in the input file")
         transform = cxr_train_transforms
     else:
-        logging.info("Using inference transforms since the string 'train' was not found in the input filename.")
+        print("Using inference transforms since the string 'train' was not found in the input filename.")
         transform = cxr_infer_transforms
         
     with open(input_json, 'rt') as fp:
@@ -69,7 +58,7 @@ def main(args):
 
     print("Compiling multi-channel images for each instance")
     with h5py.File(output_fn, "w") as of:
-        of['/len/'] = len(data_paths)
+        of['/len'] = len(data_paths)
         for inst_ind, inst in enumerate(tqdm(data_paths)):
             inst_id, inst_image_paths = inst
             inst_images = [imageio.imread(img_path, mode='F') for img_path in inst_image_paths]
@@ -82,7 +71,6 @@ def main(args):
             of[inst_data_path] = torch.stack(inst_images)
             of[inst_label_path] = labels[inst_id]
             of[inst_ind_path] = inst_ind
-
 
 if __name__ == '__main__':
     main(sys.argv[1:])
