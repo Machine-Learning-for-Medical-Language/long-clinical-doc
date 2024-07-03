@@ -6,7 +6,12 @@ For inference on the dataset, please use `llm_zeroshot.py`. For evaluation of th
 
 #### Environments
 This code was tested on Ubuntu 22.04 LTS and Rocky Linux 8.9, python 3.10, torch 2.3.1+cu121 and Transformers 4.41.2. 
-For more details, please refer to `requirements.txt`.
+
+We provide `requirements.txt` for easy installation. 
+```bash
+# Please install CUDA-enabled PyTorch in advance.
+pip install -r requirements.txt
+```
 We tested the code on single A40 and A100 GPUs by NVIDIA.
 
 We tested the following models. Please check each model's requirements (e.g., use agreements and authentication tokens) prior to executing the code.

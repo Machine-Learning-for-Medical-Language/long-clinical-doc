@@ -1,0 +1,6 @@
+# Please install CUDA-enabled PyTorch in advance
+transformers>=4.41.2
+autoawq>=0.2.5
+
+# for evaluation
+scikit-learn
