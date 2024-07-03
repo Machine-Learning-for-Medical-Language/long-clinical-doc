@@ -106,7 +106,7 @@ Citation information:
 ```
 @article{yoon2024lcd,
   title={LCD Benchmark: Long Clinical Document Benchmark on Mortality Prediction for Language Models},
-  author={Yoon, WonJin and Chen, Shan and Gao, Yanjun and Dligach, Dmitriy and Bitterman, Danielle S and Afshar, Majid and Miller, Timothy},
+  author={Yoon, WonJin and Chen, Shan and Gao, Yanjun and Zhao, Zhanzhan and Dligach, Dmitriy and Bitterman, Danielle S and Afshar, Majid and Miller, Timothy},
   journal={Under review (Preprint: medRxiv)},
   pages={2024--03},
   year={2024}

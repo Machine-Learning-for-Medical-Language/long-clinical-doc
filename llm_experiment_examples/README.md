@@ -1,4 +1,4 @@
-### LLM Experiment Examples for LCD-Benchmark Paper
+## LLM Experiment Examples for LCD-Benchmark Paper
 
 This folder contains example codes for open-sourced LLMs and evaluation code for our benchmark paper.
 
@@ -18,18 +18,20 @@ We tested the following models. Please check each model's requirements (e.g., us
 * [Qwen2-7B-Instruct](https://huggingface.co/Qwen/Qwen2-7B-Instruct)
 * [Qwen2-72B-Instruct-AWQ](https://huggingface.co/Qwen/Qwen2-72B-Instruct-AWQ)
 
-#### Examples
+### Examples
 
-Please set data path and output path as actural path.
+Please set the data path and output path as actual paths.
 ```bash
 export DATA_PATH=../out_hos_30days_mortality
 export output_dir=./outputs-tmp/
 mkdir -p $output_dir
 ```
 
-The following lines will run experiment on the dataset and will output `predictions.txt` and `predictions.json` under `$output_dir`.
+The following lines will run an example experiment using Llama3-8b on the dataset and will output `predictions.txt` and `predictions.json` under `$output_dir`.
 ```bash
+# Example LLM
 export LM_NAME=meta-llama/Meta-Llama-3-8B-Instruct
+
 export MAX_LEN=8192
 export OUTPUT_BUFFER="-1"
 
@@ -48,8 +50,9 @@ python eval_predictions_binary.py --pred_path ${output_dir}/predictions.txt
 ```
 
 
-#### Citation
-Please cite: 
+### Paper information
+Citation information:
+```
 @article{yoon2024lcd,
   title={LCD Benchmark: Long Clinical Document Benchmark on Mortality Prediction for Language Models},
   author={Yoon, WonJin and Chen, Shan and Gao, Yanjun and Zhao, Zhanzhan and Dligach, Dmitriy and Bitterman, Danielle S and Afshar, Majid and Miller, Timothy},
@@ -57,3 +60,4 @@ Please cite:
   pages={2024--03},
   year={2024}
 }
+```

@@ -1,4 +1,5 @@
-# Authors: LCD Benchmark paper authors (Yoon et al. 2024).
+# Authors: LCD Benchmark paper authors (Yoon et al. 2024)
+#
 # Please cite https://pubmed.ncbi.nlm.nih.gov/38585973/ or
 # https://www.medrxiv.org/content/10.1101/2024.03.26.24304920
 #
