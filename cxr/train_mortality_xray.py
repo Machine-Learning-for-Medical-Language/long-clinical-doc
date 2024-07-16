@@ -76,14 +76,23 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
                 continue
             # -1 here means that we grab the last image in the list of images, i.e. the latest image. future work shoudl try to use all images.
             # Then we convert it to the resized version, this should save time during loading
-            img_path = join(mimic_path, 'files', inst['images'][-1]['path'][:-4] + '_%d_resized.jpg' % (MIN_RES))
-            if not exists(img_path):
-                # this should only happen if we are still processing the images.
-                #print("Skipping file %f due to missing image" % (img_path))
-                raise Exception("Path to image does not exist: %s" % (img_path))
-            image = imageio.imread(img_path, mode='F')
-            padded_matrix[len(labels), :, :] = cxr_train_transforms(image) if train else cxr_infer_transforms(image)
-            labels.append(inst['out_hospital_mortality_30'])
+            # Sort so they are in order
+            adm_dt = inst["debug_features"]["ADMITTIME"].split(" ")[0].replace("-","")
+            sorted_images = sorted(inst['images'], key=lambda x: x['StudyDate'])
+            ## navigate backwards in time through images and try to grab the right kind of image
+            for image in sorted_images:
+                # Has to be part of this admission and be a portable chest xray
+                if str(image["StudyDate"]) >= adm_dt and image["PerformedProcedureStepDescription"] == "CHEST (PORTABLE AP)":
+                    img_path = join(mimic_path, 'files', sorted_images[-1]['path'][:-4] + '_%d_resized.jpg' % (MIN_RES))
+                    if not exists(img_path):
+                        # this should only happen if we are still processing the images.
+                        #print("Skipping file %f due to missing image" % (img_path))
+                        raise Exception("Path to image does not exist: %s" % (img_path))
+                    image = imageio.imread(img_path, mode='F')
+                    padded_matrix[len(labels), :, :] = cxr_train_transforms(image) if train else cxr_infer_transforms(image)
+                    labels.append(inst['out_hospital_mortality_30'])
+                    break
+
             if len(labels) >= num_insts:
                 break
 
