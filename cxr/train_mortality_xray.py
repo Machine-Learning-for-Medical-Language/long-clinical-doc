@@ -29,7 +29,8 @@ from transformers import HfArgumentParser
 from PIL import Image
 import imageio
 import numpy as np
-from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
+from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score, roc_auc_score
+from scipy.special import softmax
 
 RESNET = 'resnet'
 BASELINE = "baseline"
@@ -115,6 +116,7 @@ def run_one_eval(model, eval_dataset, device, loss_fct, model_type):
 
     preds = np.zeros(len(eval_dataset))
     test_labels = np.zeros(len(eval_dataset))
+    test_probs = []
 
     with torch.no_grad():
         dev_loss = 0
@@ -141,6 +143,7 @@ def run_one_eval(model, eval_dataset, device, loss_fct, model_type):
             dev_loss = loss.item()
             pred = np.argmax(logits.cpu().numpy(), axis=1)
             preds[ind] = pred
+            test_probs.append(np.max(logits.cpu().numpy(), axis=1))
 
             if pred == label:
                 num_correct += 1
@@ -155,8 +158,9 @@ def run_one_eval(model, eval_dataset, device, loss_fct, model_type):
     rec = recall_score(test_labels, preds, average=None)
     prec = precision_score(test_labels, preds, average=None)
     prev = test_labels.sum() / len(test_labels)
+    auroc = roc_auc_score(y_true=test_labels, y_score=test_probs)
     #print("F1 score is %s" % (str(f1)))
-    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec, 'prev': prev}
+    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec, 'prev': prev, 'auroc': auroc}
 
 @dataclass
 class TrainingArguments:
@@ -210,6 +214,8 @@ def main(args):
     training_args, = parser.parse_args_into_dataclasses()
     batch_size = training_args.batch_size
     eval_freq = training_args.eval_freq
+    print("Training args: %s" % (str(training_args)))
+
     # 0.001 is Adam default
     learning_rate=training_args.learning_rate
     use_resnet = training_args.model == 'resnet'
@@ -241,6 +247,7 @@ def main(args):
     loss_fct = nn.CrossEntropyLoss()
     opt = torch.optim.Adam(model.parameters(), lr=learning_rate)
     
+    print("Loading training data...")
     if training_args.train_file.endswith('.json'):
         with open(training_args.train_file, 'rt') as fp:
             train_json = json.load(fp)
@@ -256,6 +263,7 @@ def main(args):
     elif training_args.train_file.endswith('.hdf5'):
         train_dataset = VariableLengthImageDataset(training_args.train_file)
 
+    print("Loading evaluation data...")
     if training_args.eval_file.endswith('.json'):    
         with open(training_args.eval_file, 'rt') as fp:
             dev_json = json.load(fp)
