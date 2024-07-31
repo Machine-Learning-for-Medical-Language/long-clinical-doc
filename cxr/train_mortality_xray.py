@@ -21,6 +21,7 @@ from models.MultiChannelModel import MultiChannelMortalityPredictor, VariableLen
 import torch
 import torch.nn as nn
 from torch.utils.data import (DataLoader, RandomSampler, TensorDataset)
+import torch.nn.functional as F
 import torchvision.transforms as tfms
 import torchvision.models as models
 import torchxrayvision as xrv
@@ -52,7 +53,8 @@ cxr_train_transforms = tfms.Compose([
 
 cxr_infer_transforms = tfms.Compose([
     tfms.ToPILImage(),
-    tfms.CenterCrop(size=(MIN_RES,MIN_RES)),
+    tfms.Resize((MIN_RES,MIN_RES), interpolation=Image.Resampling.LANCZOS),
+    tfms.CenterCrop(MIN_RES),
     tfms.ToTensor(),
     tfms.Normalize((MEAN,), (STDEV,))
 ])
@@ -69,7 +71,7 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
         print("Using %d instances due to passed in argument" % (num_insts))
 
     if image_selection == 'last':
-        padded_matrix = torch.zeros(num_insts, MIN_RES, MIN_RES)
+        insts = []
         labels = []
         for inst in tqdm(mimic_dict['data']):
             if 'images' not in inst or len(inst['images']) == 0:
@@ -97,20 +99,14 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
             if len(labels) >= num_insts:
                 break
 
-        if len(labels) < num_insts:
-            if max_size >= 0:
-                raise Exception("Not enough data points in this dataset to satisfy the requested number of instances! %d vs. %d" % (len(labels), num_insts))
-            else:
-                logging.warning("Missing some image files so actual dataset is smaller than number of instances: %d vs. %d. Truncating input feature matrix" % (len(labels), num_insts))
-                padded_matrix = padded_matrix[:len(labels)]
-
+        padded_matrix = torch.stack(insts).squeeze()
         dataset = TensorDataset(padded_matrix, torch.tensor(labels))
     else:
         raise NotImplementedError("Image selection method %s is not implemented" % (image_selection))
         
     return dataset
 
-def run_one_eval(model, eval_dataset, device, loss_fct, model_type):
+def run_one_eval(model, eval_dataset, device, model_type):
     num_correct = num_wrong = 0
     model.eval()
 
@@ -139,11 +135,11 @@ def run_one_eval(model, eval_dataset, device, loss_fct, model_type):
                 padded_matrix[0] = matrix
 
             logits = model(padded_matrix.to(device))
-            loss = loss_fct(logits[0], torch.tensor(label).to(device))
+            loss = F.cross_entropy(logits, label.unsqueeze(dim=0).to(device))
             dev_loss = loss.item()
             pred = np.argmax(logits.cpu().numpy(), axis=1)
             preds[ind] = pred
-            test_probs.append(np.max(logits.cpu().numpy(), axis=1))
+            test_probs.append(torch.softmax(logits.cpu(), dim=1)[:,1].numpy())
 
             if pred == label:
                 num_correct += 1
@@ -160,7 +156,7 @@ def run_one_eval(model, eval_dataset, device, loss_fct, model_type):
     prev = test_labels.sum() / len(test_labels)
     auroc = roc_auc_score(y_true=test_labels, y_score=test_probs)
     #print("F1 score is %s" % (str(f1)))
-    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec, 'prev': prev, 'auroc': auroc}
+    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec, 'prevalence': prev, 'auroc': auroc}
 
 @dataclass
 class TrainingArguments:
@@ -203,6 +199,22 @@ class TrainingArguments:
         metadata={"choices": [RESNET, MULTICHANNEL, BASELINE, CHEXNET],
                   "help": "Which neural model to use"}
     )
+    label_field: str = field(
+        default="out_hospital_mortality_30",
+        metadata={"help": "The field to grab from the dataset file to use as the label"}
+    )
+    max_train: int = field(
+        default=-1,
+        metadata={"help":"The maximum number of instances to use for training (for quick testing)"}
+    )
+    max_eval: int = field(
+        default=-1,
+        metadata={"help":"The maximum number of instances to use for evaluations (for quick testing)"}
+    )
+    seed: int = field(
+        default=42,
+        metadata={"help": "The random seed to pass to torch.cuda.manual_seed() when the program is started. Probably affects neural net initialization and batch shuffling."}
+    )
      
 def main(args): 
     if torch.cuda.is_available():
@@ -216,6 +228,7 @@ def main(args):
     eval_freq = training_args.eval_freq
     print("Training args: %s" % (str(training_args)))
 
+    torch.cuda.manual_seed(training_args.seed)
     # 0.001 is Adam default
     learning_rate=training_args.learning_rate
     use_resnet = training_args.model == 'resnet'
@@ -254,7 +267,7 @@ def main(args):
             if use_mc:
                 raise Exception("For multi-channel models, dataset must be pre-processed first!")
             else:
-                train_dataset = dict_to_dataset(train_json, training_args.cxr_root, max_size=-1, train=True)
+                train_dataset = dict_to_dataset(train_json, training_args.cxr_root, max_size=training_args.max_train, train=True)
             out_file = join(dirname(training_args.train_file), 'train_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
             torch.save(train_dataset, out_file)
     elif training_args.train_file.endswith('.pt'):
@@ -270,7 +283,7 @@ def main(args):
             if use_mc:
                 raise Exception("For multi-channel models, dataset must be pre-processed first!")
             else:
-                dev_dataset = dict_to_dataset(dev_json, training_args.cxr_root, max_size=-1, train=False)
+                dev_dataset = dict_to_dataset(dev_json, training_args.cxr_root, max_size=training_args.max_eval, train=False)
             out_file = join(dirname(training_args.eval_file), 'dev_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
             torch.save(dev_dataset, out_file)
     elif training_args.eval_file.endswith('.pt'):
@@ -288,6 +301,7 @@ def main(args):
     best_loss = -1
     all_dev_results = {}
     for epoch in range(training_args.num_training_epochs):
+        model.train()
         epoch_loss = 0.0
         #for count,ind in enumerate(train_inds):
         for batch in tqdm(dataloader, desc="Iteration"):
@@ -312,7 +326,7 @@ def main(args):
             model.zero_grad()
         print("Epoch %d loss: %0.9f" % (epoch, epoch_loss))
         if epoch % eval_freq == 0:
-            dev_results = run_one_eval(model, dev_dataset, device, loss_fct, training_args.model)
+            dev_results = run_one_eval(model, dev_dataset, device, training_args.model)
             for result_key, result_val in dev_results.items():
                 print("Dev %s = %s" % (result_key, str(result_val)))
                 if result_key not in all_dev_results:
@@ -329,7 +343,7 @@ def main(args):
     if training_args.model_filename:
         torch.load(training_args.model_filename)
 
-    final_dev_results = run_one_eval(model, dev_dataset, device, loss_fct, training_args.model)
+    final_dev_results = run_one_eval(model, dev_dataset, device, training_args.model)
     print("Final dev results: %s" % str(final_dev_results))
 
     print("Running dev results:")
