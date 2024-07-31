@@ -135,6 +135,7 @@ def run_one_eval(model, eval_dataset, device, model_type):
                 padded_matrix[0] = matrix
 
             logits = model(padded_matrix.to(device))
+            label = torch.tensor(label)
             loss = F.cross_entropy(logits, label.unsqueeze(dim=0).to(device))
             dev_loss = loss.item()
             pred = np.argmax(logits.cpu().numpy(), axis=1)
@@ -156,8 +157,22 @@ def run_one_eval(model, eval_dataset, device, model_type):
     prev = test_labels.sum() / len(test_labels)
     auroc = roc_auc_score(y_true=test_labels, y_score=test_probs)
     precs, recs, thresholds = precision_recall_curve(y_true=test_labels, y_score=test_probs, drop_intermediate=True)
+    max_f1 = -1
+    max_threshold = 0.0
+    max_f1_prec = max_f1_rec = 0
+
+    for dp_ind, threshold in enumerate(thresholds):
+        dp_prec = precs[dp_ind]
+        dp_rec = recs[dp_ind]
+        dp_f1 = 2 * dp_prec * dp_rec / (dp_prec+dp_rec)
+        if dp_f1 > max_f1:
+            max_f1 = dp_f1
+            max_threshold = threshold
+            max_f1_rec = dp_rec
+            max_f1_prec = dp_prec
+
     #print("F1 score is %s" % (str(f1)))
-    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec, 'prevalence': prev, 'auroc': auroc, 'prc': (precs, recs, thresholds)}
+    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec, 'prevalence': prev, 'auroc': auroc, 'prc': {'prec':max_f1_prec, 'rec':max_f1_rec, 'f1':max_f1, 'thresh':max_threshold}}
 
 @dataclass
 class TrainingArguments:
