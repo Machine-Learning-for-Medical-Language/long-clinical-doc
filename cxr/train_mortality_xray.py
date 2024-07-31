@@ -30,7 +30,7 @@ from transformers import HfArgumentParser
 from PIL import Image
 import imageio
 import numpy as np
-from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score, roc_auc_score
+from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score, roc_auc_score, precision_recall_curve
 from scipy.special import softmax
 
 RESNET = 'resnet'
@@ -40,7 +40,7 @@ CHEXNET = "chexnet"
 
 # From pytorch-cxr
 MIN_RES = 512
-MEAN = 0.485
+MEAN = 0.0
 STDEV = 0.229
 
 cxr_train_transforms = tfms.Compose([
@@ -86,13 +86,13 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
             for image in sorted_images:
                 # Has to be part of this admission and be a portable chest xray
                 if str(image["StudyDate"]) >= adm_dt and image["PerformedProcedureStepDescription"] == "CHEST (PORTABLE AP)":
-                    img_path = join(mimic_path, 'files', sorted_images[-1]['path'][:-4] + '_%d_resized.jpg' % (MIN_RES))
+                    img_path = join(mimic_path, 'files', image['path'][:-4] + '_%d_resized.jpg' % (MIN_RES))
                     if not exists(img_path):
                         # this should only happen if we are still processing the images.
                         #print("Skipping file %f due to missing image" % (img_path))
                         raise Exception("Path to image does not exist: %s" % (img_path))
-                    image = imageio.imread(img_path, mode='F')
-                    padded_matrix[len(labels), :, :] = cxr_train_transforms(image) if train else cxr_infer_transforms(image)
+                    img_data = imageio.imread(img_path, mode='F')
+                    insts.append(cxr_train_transforms(img_data) if train else cxr_infer_transforms(img_data))
                     labels.append(inst['out_hospital_mortality_30'])
                     break
 
@@ -155,8 +155,9 @@ def run_one_eval(model, eval_dataset, device, model_type):
     prec = precision_score(test_labels, preds, average=None)
     prev = test_labels.sum() / len(test_labels)
     auroc = roc_auc_score(y_true=test_labels, y_score=test_probs)
+    precs, recs, thresholds = precision_recall_curve(y_true=test_labels, y_score=test_probs, drop_intermediate=True)
     #print("F1 score is %s" % (str(f1)))
-    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec, 'prevalence': prev, 'auroc': auroc}
+    return {'dev_loss': dev_loss, 'acc': acc, 'f1': f1, 'rec': rec, 'prec': prec, 'prevalence': prev, 'auroc': auroc, 'prc': (precs, recs, thresholds)}
 
 @dataclass
 class TrainingArguments:
