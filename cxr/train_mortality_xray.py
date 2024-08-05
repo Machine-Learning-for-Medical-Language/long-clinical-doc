@@ -6,12 +6,9 @@
 #####################
 
 import sys
-import os
 import json
 from os.path import join, exists, dirname
-import logging
 from dataclasses import dataclass, field
-from argparse import ArgumentParser
 
 from tqdm import tqdm
 
@@ -65,6 +62,7 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
         if 'images' in inst.keys() and len(inst['images']) > 0:
             num_insts += 1
 
+    metadata = []
     print("Found %d instances in this data" % (num_insts))
     if max_size >= 0 and num_insts > max_size:
         num_insts = max_size
@@ -74,6 +72,7 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
         insts = []
         labels = []
         for inst in tqdm(mimic_dict['data']):
+            inst_metadata = {}
             if 'images' not in inst or len(inst['images']) == 0:
                 # some instances to not have any xrays
                 continue
@@ -94,6 +93,9 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
                     img_data = imageio.imread(img_path, mode='F')
                     insts.append(cxr_train_transforms(img_data) if train else cxr_infer_transforms(img_data))
                     labels.append(inst['out_hospital_mortality_30'])
+                    inst_metadata['img_fn'] = img_path
+                    inst_metadata['hadm_id'] = inst["debug_features"]["HADM_ID"]
+                    metadata.append(inst_metadata)
                     break
 
             if len(labels) >= num_insts:
@@ -104,7 +106,7 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
     else:
         raise NotImplementedError("Image selection method %s is not implemented" % (image_selection))
         
-    return dataset
+    return dataset, metadata
 
 def run_one_eval(model, eval_dataset, device, model_type):
     num_correct = num_wrong = 0
@@ -283,7 +285,7 @@ def main(args):
             if use_mc:
                 raise Exception("For multi-channel models, dataset must be pre-processed first!")
             else:
-                train_dataset = dict_to_dataset(train_json, training_args.cxr_root, max_size=training_args.max_train, train=True)
+                train_dataset, _ = dict_to_dataset(train_json, training_args.cxr_root, max_size=training_args.max_train, train=True)
             out_file = join(dirname(training_args.train_file), 'train_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
             torch.save(train_dataset, out_file)
     elif training_args.train_file.endswith('.pt'):
@@ -299,7 +301,7 @@ def main(args):
             if use_mc:
                 raise Exception("For multi-channel models, dataset must be pre-processed first!")
             else:
-                dev_dataset = dict_to_dataset(dev_json, training_args.cxr_root, max_size=training_args.max_eval, train=False)
+                dev_dataset, metadata = dict_to_dataset(dev_json, training_args.cxr_root, max_size=training_args.max_eval, train=False)
             out_file = join(dirname(training_args.eval_file), 'dev_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
             torch.save(dev_dataset, out_file)
     elif training_args.eval_file.endswith('.pt'):

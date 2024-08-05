@@ -7,41 +7,35 @@ from PIL import Image
 import imageio
 from tqdm import tqdm
 import h5py
+import torchvision.models as models
 
 class MultiChannelMortalityPredictor(nn.Module):
-    def __init__(self, shape, num_filters=32, kernel_size=(1,5,5), pool_size=10):
-
+    def __init__(self, shape, embed_dim = 512, num_heads=16):
         super(MultiChannelMortalityPredictor, self).__init__()
-        # in = embed_dim, out = num_filters, kernel = 5
-        # default stride=1, padding=0, dilation=1
-        stride = 1
-        # use a 3d convolution because there will be several images per instance, but variable numbers
-        self.conv1 = nn.Conv3d(1, num_filters, kernel_size)
-        # self.dout_conv = int(torch.floor( torch.tensor(1 + (shape[0] - (kernel_size[0]-1) - 1) / stride)).item())
-        self.hout_conv = int(torch.floor( torch.tensor(1 + (shape[0] - (kernel_size[1]-1) - 1) / stride)).item())
-        self.wout_conv = int(torch.floor( torch.tensor(1 + (shape[1] - (kernel_size[2]-1) - 1) / stride)).item())
+        self.encoder = models.resnet18(pretrained=True)
+        self.encoder.fc = nn.Identity()
+        self.multi_head_attention = nn.MultiheadAttention(embed_dim, num_heads)
+        self.Q = torch.rand(embed_dim)
+        self.fc1 = nn.Linear(embed_dim, 2)
+
+    def forward(self, batch_input):
+        if not self.Q.device == batch_input.device:
+            self.Q = self.Q.to(batch_input.device)
+
+        # multiply out grayscale channels to RGB for resnet encoder
+        rgb_matrix = torch.repeat_interleave(batch_input, 3, dim=1)
+        # how many images are in this instance
+        channels = rgb_matrix.shape[2]
+        reps = torch.stack([self.encoder(rgb_matrix[:,:,i,:,:]) for i in range(channels)])
         
-        self.pool_size = pool_size
-        pool_stride = pool_size
-        # self.dout_pool = int(torch.floor( torch.tensor(1 + (self.dout_conv - (pool_size-1) - 1) / pool_stride)).item())
-        self.hout_pool = int(torch.floor( torch.tensor(1 + (self.hout_conv - (pool_size-1) - 1) / pool_stride)).item())
-        self.wout_pool = int(torch.floor( torch.tensor(1 + (self.wout_conv - (pool_size-1) - 1) / pool_stride)).item())
-        # self.conv2 = nn.Conv2d(6, 16, 5)
-        # self.conv3 = nn.Conv2d(16, 32, 3)
-
-        self.fc1 = nn.Linear(num_filters * self.hout_pool * self.wout_pool, 2)
-        # self.fc2 = nn.Linear(120, 84)
-        # self.fc3 = nn.Linear(84, 10)
-        print("Model initialized with hidden layer containing %d nodes" % (self.fc1.in_features) )
-    
-    def forward(self, matrix):
-        channels = matrix.shape[2]
-        unpooled = F.relu(self.conv1(matrix))
-        # pooled = self.pool(unpooled)
-        pooled = F.max_pool3d(unpooled, (channels, self.pool_size, self.pool_size))
-
-        x = pooled.view(matrix.shape[0], -1)
-        out = self.fc1(x)
+        attn_output, attn_weights = self.multi_head_attention(
+            # Need to multiply out the query vector so there's one for each batch, then unsqueeze again for dim=1 output 
+            torch.repeat_interleave(self.Q.unsqueeze(dim=0), batch_input.shape[0], dim=0).unsqueeze(dim=0),
+            reps,
+            reps
+        )
+        # squeeze the collapsed attention dimension but keep the batch dimension (in case batch size=1)
+        out = self.fc1(attn_output).squeeze(dim=0)
         return out
 
 
