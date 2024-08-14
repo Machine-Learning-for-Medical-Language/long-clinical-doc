@@ -10,6 +10,7 @@ import torch
 from torch.utils.data import (DataLoader, SequentialSampler, TensorDataset)
 
 from train_mortality_xray import dict_to_dataset, RESNET, MULTICHANNEL, BASELINE, CHEXNET, MIN_RES
+from models.MultiChannelModel import MultiChannelMortalityPredictor, VariableLengthImageDataset, collate_fn
 
 @dataclass
 class InferenceArguments:
@@ -45,11 +46,17 @@ def main(args):
     
     model = torch.load(infer_args.model_file)
 
-    with open(infer_args.eval_file, 'rt') as fp:
-        dev_json = json.load(fp)
-        if infer_args.model_type == MULTICHANNEL:
-            raise Exception("For multi-channel models, dataset must be pre-processed first!")
-        else:
+    if infer_args.model_type == MULTICHANNEL:
+        eval_dataset = VariableLengthImageDataset(infer_args.eval_file)
+        metadata = []
+        for i in range(len(eval_dataset)):
+            metadata.append({'hadm_id': eval_dataset.get_metadata(i),
+                             'img_fn': eval_dataset.get_id(i)
+                            })
+
+    else:
+        with open(infer_args.eval_file, 'rt') as fp:
+            dev_json = json.load(fp)
             eval_dataset, metadata = dict_to_dataset(dev_json, infer_args.cxr_root, max_size=infer_args.max_eval, train=False)
 
     model.eval()
@@ -57,6 +64,7 @@ def main(args):
     with torch.no_grad():
         for ind in range(0, len(eval_dataset)):
             matrix, label = eval_dataset[ind]
+
             if infer_args.model_type==RESNET:
                 padded_matrix = torch.zeros(1, 3, MIN_RES, MIN_RES)
                 padded_matrix[0,0] = matrix

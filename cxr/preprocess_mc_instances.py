@@ -37,6 +37,7 @@ def main(args):
     ## create a list of lists of image paths for the dataset
     data_paths = []
     labels = {}
+    notes = {}
     print("Processing data paths")
     for inst in tqdm(data_json['data']):
         if 'images' not in inst or len(inst['images']) == 0:
@@ -51,8 +52,9 @@ def main(args):
                 inst_paths.append(img_path)
         
         if len(inst_paths) > 0 and len(inst_paths) < 8:
-            data_paths.append( (inst['id'], inst_paths) )
+            data_paths.append( (inst['id'], inst_paths, inst["debug_features"]["HADM_ID"]) )
             labels[inst['id']] = inst['out_hospital_mortality_30']
+            notes[inst['id']] = inst['text']
 
     print("Out of %d instances with images, %d have images from the same encounter" % (num_insts, len(data_paths)))
 
@@ -60,17 +62,22 @@ def main(args):
     with h5py.File(output_fn, "w") as of:
         of['/len'] = len(data_paths)
         for inst_ind, inst in enumerate(tqdm(data_paths)):
-            inst_id, inst_image_paths = inst
+            inst_id, inst_image_paths, inst_hadm = inst
             inst_images = [imageio.imread(img_path, mode='F') for img_path in inst_image_paths]
             inst_images = [transform(image) for image in inst_images]
             # instances.append(inst_images)
             inst_data_path = '/%d/data' % (inst_ind)
             inst_label_path = '/%d/label' % (inst_ind)
-            inst_ind_path = '/%d/id' % (inst_ind)
+            inst_id_path = '/%d/id' % (inst_ind)
+            inst_hadm_path = '/%d/hadm' % (inst_ind)
+            inst_text_path = '/%d/text' % (inst_ind)
 
             of[inst_data_path] = torch.stack(inst_images)
             of[inst_label_path] = labels[inst_id]
-            of[inst_ind_path] = inst_ind
+            of[inst_id_path] = inst_id
+            of[inst_hadm_path] = str(inst_hadm)
+            of[inst_text_path] = notes[inst_id]
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

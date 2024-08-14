@@ -23,7 +23,6 @@ import torchvision.transforms as tfms
 import torchvision.models as models
 import torchxrayvision as xrv
 from transformers import HfArgumentParser
-
 from PIL import Image
 import imageio
 import numpy as np
@@ -34,6 +33,7 @@ RESNET = 'resnet'
 BASELINE = "baseline"
 MULTICHANNEL = "mc"
 CHEXNET = "chexnet"
+VIT = "vit"
 
 # From pytorch-cxr
 MIN_RES = 512
@@ -214,7 +214,7 @@ class TrainingArguments:
     )
     model: str = field(
         default='baseline',
-        metadata={"choices": [RESNET, MULTICHANNEL, BASELINE, CHEXNET],
+        metadata={"choices": [RESNET, MULTICHANNEL, BASELINE, CHEXNET, VIT],
                   "help": "Which neural model to use"}
     )
     label_field: str = field(
@@ -249,26 +249,26 @@ def main(args):
     torch.cuda.manual_seed(training_args.seed)
     # 0.001 is Adam default
     learning_rate=training_args.learning_rate
-    use_resnet = training_args.model == 'resnet'
-    use_chexnet = False
-    use_mc = training_args.model == 'mc'
 
-    if use_resnet:
+    if training_args.model == RESNET:
         print("Using resnet model")
-        model = models.resnet18(pretrained=True)
+        model = models.resnet34(pretrained=True)
         # need to modify the output layer for our label set (plus we don't care about their output space so those weights are not interesting to us)
         # 512x2 for resnet18, 1024x2 for chex
         model.fc = nn.Linear(512, 2)
-    elif use_chexnet:
+    elif training_args.model == CHEXNET:
         print("Using chexnet: this isn't working right now")
         raise NotImplementedError("Chexnet is not working now.")
         model = xrv.models.DenseNet(weights="densenet121-res224-chex")
         model.fc = nn.Linear(1024, 2)
-    elif use_mc:
+    elif training_args.model == MULTICHANNEL:
         print("Using multi-channel model")
         model = MultiChannelMortalityPredictor( (MIN_RES, MIN_RES) )
         if training_args.eval_file.endswith('.json'):
             import bmemcached
+    elif training_args.model == VIT:
+        model = models.vision_transformer.vit_l_16(models.vision_transformer.ViT_L_16_Weights.IMAGENET1K_SWAG_E2E_V1)
+        model.fc = nn.Linear(512, 2)
     else:
         print("Using baseline single image (CNN) model")
         model = BaselineMortalityPredictor( (MIN_RES, MIN_RES) )
@@ -282,11 +282,11 @@ def main(args):
     if training_args.train_file.endswith('.json'):
         with open(training_args.train_file, 'rt') as fp:
             train_json = json.load(fp)
-            if use_mc:
+            if training_args.model==MULTICHANNEL:
                 raise Exception("For multi-channel models, dataset must be pre-processed first!")
             else:
                 train_dataset, _ = dict_to_dataset(train_json, training_args.cxr_root, max_size=training_args.max_train, train=True)
-            out_file = join(dirname(training_args.train_file), 'train_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
+            out_file = join(dirname(training_args.train_file), 'train_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if training_args.model==MULTICHANNEL else 'last'))
             torch.save(train_dataset, out_file)
     elif training_args.train_file.endswith('.pt'):
         print("Loading training data from cached pytorch file.")
@@ -298,11 +298,11 @@ def main(args):
     if training_args.eval_file.endswith('.json'):    
         with open(training_args.eval_file, 'rt') as fp:
             dev_json = json.load(fp)
-            if use_mc:
+            if training_args.model == MULTICHANNEL:
                 raise Exception("For multi-channel models, dataset must be pre-processed first!")
             else:
                 dev_dataset, metadata = dict_to_dataset(dev_json, training_args.cxr_root, max_size=training_args.max_eval, train=False)
-            out_file = join(dirname(training_args.eval_file), 'dev_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if use_mc else 'last'))
+            out_file = join(dirname(training_args.eval_file), 'dev_cache_res=%d_selection=%s.pt' % (MIN_RES, 'all' if training_args.model == MULTICHANNEL else 'last'))
             torch.save(dev_dataset, out_file)
     elif training_args.eval_file.endswith('.pt'):
         print("Loading dev data from cache.")
@@ -311,7 +311,7 @@ def main(args):
         dev_dataset = VariableLengthImageDataset(training_args.eval_file)
  
     sampler = RandomSampler(train_dataset)
-    if use_mc:
+    if training_args.model == MULTICHANNEL:
         dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size, collate_fn=collate_fn, num_workers=8)
     else:
         dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size)
@@ -326,13 +326,16 @@ def main(args):
             batch = tuple(t.to(device) for t in batch)
             batch_data, batch_labels = batch
             opt.zero_grad()
-            if use_resnet:
+            if training_args.model == RESNET:
                 # resnet expects 3 channels (RGB) but we have grayscale images
                 rgb_batch = torch.repeat_interleave(batch_data.unsqueeze(1), 3, dim=1)
                 logits = model(rgb_batch)
-            elif use_chexnet:
+            elif training_args.model == CHEXNET:
                 # Not working
                 logits = model(batch_data.unsqueeze(1)*341)
+            elif training_args.model == VIT:
+                rgb_batch = torch.repeat_interleave(batch_data.unsqueeze(1), 3, dim=1)
+                logits = model(rgb_batch)
             else:
                 # add a empty 1 dimension here for the 1 channel so the model knows
                 # the first dimension is batch and not channels

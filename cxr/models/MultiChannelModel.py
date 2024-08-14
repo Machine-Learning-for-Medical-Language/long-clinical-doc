@@ -57,6 +57,12 @@ class VariableLengthImageDataset(Dataset):
     def __getitem__(self, idx):
         return torch.tensor(self.fp['%d/data' % (idx)]), self.labels[idx]
 
+    def get_metadata(self, idx):
+        return self.fp['%d/hadm' % (idx)][()].decode()
+    
+    def get_id(self, idx):
+        return self.fp['%d/id' % (idx)][()].decode()
+
 # Custom collate function to handle variable-length batches
 def collate_fn(batch):
     images_batch, labels_batch = zip(*batch)
