@@ -84,6 +84,7 @@ def dict_to_dataset(mimic_dict, mimic_path, max_size=-1, train=True, image_selec
             ## navigate backwards in time through images and try to grab the right kind of image
             for image in sorted_images:
                 # Has to be part of this admission and be a portable chest xray
+                # we already check before we build this .json file that it's before the discharge date
                 if str(image["StudyDate"]) >= adm_dt and image["PerformedProcedureStepDescription"] == "CHEST (PORTABLE AP)":
                     img_path = join(mimic_path, 'files', image['path'][:-4] + '_%d_resized.jpg' % (MIN_RES))
                     if not exists(img_path):
@@ -122,7 +123,7 @@ def run_one_eval(model, eval_dataset, device, model_type):
             matrix, label = eval_dataset[ind]
             # label_ind = label_map[label]
             test_labels[ind] = label
-            if model_type==RESNET:
+            if model_type==RESNET or model_type==VIT:
                 padded_matrix = torch.zeros(1, 3, MIN_RES, MIN_RES)
                 padded_matrix[0,0] = matrix
                 padded_matrix[0,1] = matrix
@@ -268,7 +269,7 @@ def main(args):
             import bmemcached
     elif training_args.model == VIT:
         model = models.vision_transformer.vit_l_16(models.vision_transformer.ViT_L_16_Weights.IMAGENET1K_SWAG_E2E_V1)
-        model.fc = nn.Linear(512, 2)
+        model.heads.head = nn.Linear(1024, 2)
     else:
         print("Using baseline single image (CNN) model")
         model = BaselineMortalityPredictor( (MIN_RES, MIN_RES) )
