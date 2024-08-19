@@ -18,7 +18,7 @@ class MultiChannelMortalityPredictor(nn.Module):
         self.Q = torch.rand(embed_dim)
         self.fc1 = nn.Linear(embed_dim, 2)
 
-    def forward(self, batch_input):
+    def forward(self, batch_input, output_hidden_states=False):
         if not self.Q.device == batch_input.device:
             self.Q = self.Q.to(batch_input.device)
 
@@ -36,7 +36,10 @@ class MultiChannelMortalityPredictor(nn.Module):
         )
         # squeeze the collapsed attention dimension but keep the batch dimension (in case batch size=1)
         out = self.fc1(attn_output).squeeze(dim=0)
-        return out
+        if output_hidden_states:
+            return out, attn_output.squeeze(dim=0)
+        else:
+            return out
 
 
 
@@ -55,7 +58,7 @@ class VariableLengthImageDataset(Dataset):
         return self.fp['/len/'][()]
 
     def __getitem__(self, idx):
-        return torch.tensor(self.fp['%d/data' % (idx)]), self.labels[idx]
+        return torch.tensor(self.fp['%d/data' % (idx)]), self.get_text(idx), self.labels[idx]
 
     def get_metadata(self, idx):
         return self.fp['%d/hadm' % (idx)][()].decode()
@@ -63,9 +66,13 @@ class VariableLengthImageDataset(Dataset):
     def get_id(self, idx):
         return self.fp['%d/id' % (idx)][()].decode()
 
+    def get_text(self, idx):
+        inst_text_path = '/%d/text' % (idx)
+        return self.fp[inst_text_path][()].decode()
+
 # Custom collate function to handle variable-length batches
 def collate_fn(batch):
-    images_batch, labels_batch = zip(*batch)
+    images_batch, text_batch, labels_batch = zip(*batch)
     max_length = max(len(image_list) for image_list in images_batch)
     padded_batch = []
 
@@ -78,4 +85,4 @@ def collate_fn(batch):
     
     # squeeze the dimension corresponding to the grayscale channel, make sure to specify dim=2 otherwise
     # it could squeeze the batch dimension if batch_size=1
-    return torch.squeeze(torch.stack(padded_batch), dim=2), torch.tensor(labels_batch)
+    return torch.squeeze(torch.stack(padded_batch), dim=2), text_batch, torch.tensor(labels_batch)
