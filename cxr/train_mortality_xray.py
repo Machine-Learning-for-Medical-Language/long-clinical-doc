@@ -14,6 +14,8 @@ from tqdm import tqdm
 
 from models.BaselineModel import BaselineMortalityPredictor
 from models.MultiChannelModel import MultiChannelMortalityPredictor, VariableLengthImageDataset, collate_fn
+from models.MultiModalModel import MultiModalMortalityPredictor
+# from models.VitModel import VitMortalityPredictor
 
 import torch
 import torch.nn as nn
@@ -34,6 +36,7 @@ BASELINE = "baseline"
 MULTICHANNEL = "mc"
 CHEXNET = "chexnet"
 VIT = "vit"
+MULTIMODAL = "multimodal"
 
 # From pytorch-cxr
 MIN_RES = 512
@@ -120,7 +123,11 @@ def run_one_eval(model, eval_dataset, device, model_type):
     with torch.no_grad():
         dev_loss = 0
         for ind in range(0, len(eval_dataset)):
-            matrix, label = eval_dataset[ind]
+            if len(eval_dataset[ind]) == 3:
+                matrix, text, label = eval_dataset[ind]
+            else:
+                matrix, label = eval_dataset[ind]
+
             # label_ind = label_map[label]
             test_labels[ind] = label
             if model_type==RESNET or model_type==VIT:
@@ -128,16 +135,23 @@ def run_one_eval(model, eval_dataset, device, model_type):
                 padded_matrix[0,0] = matrix
                 padded_matrix[0,1] = matrix
                 padded_matrix[0,2] = matrix
-            elif model_type==MULTICHANNEL:
-                # train shape is (batch_size, 1, num_images, res, res)
+                logits = model(padded_matrix.to(device))
+            elif model_type==MULTICHANNEL or model_type == MULTIMODAL:
+                # train shape is (batch_size, 1, num_images, res, res) - 1 is grayscale channel
                 # shape from reader is (num_images, 1, res, res)
                 # we want (for evals of batch size 1) shape (1, 1, num_images, 512, 512)
                 padded_matrix = torch.permute(matrix, (1,0,2,3)).unsqueeze(dim=0)
+                if model_type == MULTICHANNEL:
+                    logits = model(padded_matrix.to(device))
+                elif model_type == MULTIMODAL:
+                    logits = model(img_matrix=padded_matrix.to(device), text=[text])
+                else:
+                    raise NotImplementedError("Only multichannel or multimodal models are handled here.")
             else: # chexnet can use the default
-                padded_matrix = torch.zeros(1, MIN_RES, MIN_RES)
-                padded_matrix[0] = matrix
+                padded_matrix = matrix.unsqueeze(dim=0)
 
-            logits = model(padded_matrix.to(device))
+                logits = model(padded_matrix.to(device))
+
             label = torch.tensor(label)
             loss = F.cross_entropy(logits, label.unsqueeze(dim=0).to(device))
             dev_loss = loss.item()
@@ -215,7 +229,7 @@ class TrainingArguments:
     )
     model: str = field(
         default='baseline',
-        metadata={"choices": [RESNET, MULTICHANNEL, BASELINE, CHEXNET, VIT],
+        metadata={"choices": [RESNET, MULTICHANNEL, BASELINE, CHEXNET, VIT, MULTIMODAL],
                   "help": "Which neural model to use"}
     )
     label_field: str = field(
@@ -233,6 +247,14 @@ class TrainingArguments:
     seed: int = field(
         default=42,
         metadata={"help": "The random seed to pass to torch.cuda.manual_seed() when the program is started. Probably affects neural net initialization and batch shuffling."}
+    )
+    img_model: str = field(
+        default=None,
+        metadata={"help": "The saved trained model to use to initialize the image classification model. Used in the multi-modal classifier."}
+    )
+    txt_model: str = field(
+        default=None,
+        metadata={"help": "The saved trained model to use to initialize a text classification model. Used in the multi-modal classifier."}
     )
      
 def main(args): 
@@ -270,6 +292,8 @@ def main(args):
     elif training_args.model == VIT:
         model = models.vision_transformer.vit_l_16(models.vision_transformer.ViT_L_16_Weights.IMAGENET1K_SWAG_E2E_V1)
         model.heads.head = nn.Linear(1024, 2)
+    elif training_args.model == MULTIMODAL:
+        model = MultiModalMortalityPredictor(img_model=training_args.img_model, text_model=training_args.txt_model)
     else:
         print("Using baseline single image (CNN) model")
         model = BaselineMortalityPredictor( (MIN_RES, MIN_RES) )
@@ -312,7 +336,7 @@ def main(args):
         dev_dataset = VariableLengthImageDataset(training_args.eval_file)
  
     sampler = RandomSampler(train_dataset)
-    if training_args.model == MULTICHANNEL:
+    if training_args.model == MULTICHANNEL or training_args.model == MULTIMODAL:
         dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size, collate_fn=collate_fn, num_workers=8)
     else:
         dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size)
@@ -324,23 +348,34 @@ def main(args):
         epoch_loss = 0.0
         #for count,ind in enumerate(train_inds):
         for batch in tqdm(dataloader, desc="Iteration"):
-            batch = tuple(t.to(device) for t in batch)
-            batch_data, batch_labels = batch
             opt.zero_grad()
+
+            if len(batch) == 3:
+                batch_images, batch_text, batch_labels = batch
+            elif len(batch) == 2:
+                batch_images, batch_labels = batch
+
+            batch_images = torch.stack(tuple(t.to(device) for t in batch_images))
+            batch_labels = torch.stack(tuple(t.to(device) for t in batch_labels))
+            
             if training_args.model == RESNET:
                 # resnet expects 3 channels (RGB) but we have grayscale images
-                rgb_batch = torch.repeat_interleave(batch_data.unsqueeze(1), 3, dim=1)
+                rgb_batch = torch.repeat_interleave(batch_images.unsqueeze(1), 3, dim=1)
                 logits = model(rgb_batch)
             elif training_args.model == CHEXNET:
                 # Not working
-                logits = model(batch_data.unsqueeze(1)*341)
+                logits = model(batch_images.unsqueeze(1)*341)
             elif training_args.model == VIT:
-                rgb_batch = torch.repeat_interleave(batch_data.unsqueeze(1), 3, dim=1)
+                rgb_batch = torch.repeat_interleave(batch_images.unsqueeze(1), 3, dim=1)
                 logits = model(rgb_batch)
-            else:
+            elif training_args.model == MULTICHANNEL or training_args.model == MULTIMODAL:
                 # add a empty 1 dimension here for the 1 channel so the model knows
                 # the first dimension is batch and not channels
-                logits = model(batch_data.unsqueeze(1))
+                if training_args.model == MULTICHANNEL:
+                    logits = model(batch_images.unsqueeze(1))
+                elif training_args.model == MULTIMODAL:
+                    logits = model(img_matrix=batch_images.unsqueeze(1), text=batch_text)
+
             loss = loss_fct(logits, batch_labels)
             loss.backward()
             epoch_loss += loss.item()
