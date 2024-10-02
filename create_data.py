@@ -81,6 +81,8 @@ if __name__ == "__main__":
         gold_data = json.load(goldfp)
 
     outputs_dict_total = {}
+    outputs_metadata = {}
+    metadata_list = "note_id,subject_id,hadm_id,note_type,note_seq,charttime,storetime".split(",")
 
     for data_idx, data_row in tqdm(data.iterrows(), total=len(data)):
         text = remove_newline(data_row['text'])
@@ -108,6 +110,10 @@ if __name__ == "__main__":
             str(args.task_name): gold_data[hashed][str(args.task_name)],
             "data_type": gold_data[hashed]["data_type"],
         }
+        outputs_metadata[hashed] = {
+            metadata_name:data_row[metadata_name] for metadata_name in metadata_list
+        }
+        outputs_metadata[hashed]["data_type"] = gold_data[hashed]["data_type"]
     
     for data_type in ["train", "dev", "test"]:
 
@@ -128,5 +134,8 @@ if __name__ == "__main__":
         if len(outputs_list) != normal_data_count[data_type]:
             logger.critical(f"WARNING: The number of datapoints is not matching with the author's processing results!"+\
             "Please contact the authors of the benchmark dataset.")
+
+    with open(os.path.join(args.output_path, "metadata.json"), "w") as outfp:
+        json.dump(fp=outfp, obj=outputs_metadata, indent=2)
 
     logger.debug(f"Writing of benchmark dataset done. Path: {args.output_path}")
