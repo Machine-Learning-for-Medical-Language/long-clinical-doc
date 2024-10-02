@@ -7,7 +7,7 @@ import re
 import logging
 from tqdm import tqdm
 
-VERSION = "v20240218"
+VERSION = "v20240901"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -67,6 +67,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output_path", required=True, help="A path to save full dataset files (json format)"
     )
+    parser.add_argument(
+        "--task_name", default="out_hospital_mortality_30", 
+        help="Name of the task. Currently supported tasks: out_hospital_mortality_30, out_hospital_mortality_60, out_hospital_mortality_90. Default: out_hospital_mortality_30"
+    ) 
     args = parser.parse_args()
 
     logger.info(args)
@@ -101,7 +105,7 @@ if __name__ == "__main__":
 
         outputs_dict_total[hashed] = {
             "text": text,
-            "out_hospital_mortality_30": gold_data[hashed]["out_hospital_mortality_30"],
+            str(args.task_name): gold_data[hashed][str(args.task_name)],
             "data_type": gold_data[hashed]["data_type"],
         }
     

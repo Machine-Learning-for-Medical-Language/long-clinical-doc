@@ -6,7 +6,7 @@ import json
 import re
 import logging
 
-VERSION = "v20240218"
+VERSION = "v20240901"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -62,14 +62,20 @@ if __name__ == "__main__":
         "--discharge_path", required=True, help="Path to discharge.csv file"
     )
     parser.add_argument(
-        "--output_path", required=True, help="A gold annotation json file"
+        "--task_name", default="out_hospital_mortality_30", 
+        help="Name of the task. Currently supported tasks: out_hospital_mortality_30, out_hospital_mortality_60, out_hospital_mortality_90. Default: out_hospital_mortality_30"
+    )
+    parser.add_argument(
+        "--output_path", required=True, 
+        help="Path to save the annotated JSON file. The JSON file will be saved in <output_path>/<task_name>/"
     )
     args = parser.parse_args()
 
     logger.info(args)
-
-    if not os.path.exists(args.output_path):
-        os.makedirs(args.output_path)
+    
+    output_path = os.path.join(args.output_path, args.task_name)
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
 
     gold_data = {}
     for data_type in ["train", "dev", "test"]:
@@ -100,11 +106,11 @@ if __name__ == "__main__":
     
             outputs_dict[hashed] = {
                 "data_type": data_type,
-                "out_hospital_mortality_30": data_row['out_hospital_mortality_30']
+                str(args.task_name): data_row[args.task_name]
             } 
     
-        if os.path.isdir(args.output_path):
-            json_path = os.path.join(args.output_path, f"{data_type}-labels.json")
+        if os.path.isdir(output_path):
+            json_path = os.path.join(output_path, f"{data_type}-labels.json")
         else:
             raise AttributeError("args.output_path should be a dir")
                             
@@ -113,7 +119,7 @@ if __name__ == "__main__":
 
         outputs_dict_total.update(outputs_dict)
 
-    json_path = os.path.join(args.output_path, f"labels.json")
+    json_path = os.path.join(output_path, f"labels.json")
     with open(json_path, 'w') as outfp:
         json.dump(fp=outfp, obj=outputs_dict_total, indent=2)
 

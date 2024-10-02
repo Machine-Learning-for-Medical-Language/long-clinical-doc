@@ -85,15 +85,19 @@ cd long-clinical-doc
 
 4. Merge notes and the labels
 ```bash
-export TASK_NAME="out_hos_30days_mortality"
+export TASK_NAME="out_hospital_mortality_30"
 export LABEL_PATH=${TASK_NAME}/labels.json
 export OUTPUT_PATH=${TASK_NAME} 
 
 python create_data.py \
  --label_path ${LABEL_PATH} \
  --discharge_path ${NOTE_PATH} \
- --output_path ${OUTPUT_PATH}
+ --output_path ${OUTPUT_PATH} \
+ --task_name ${TASK_NAME}
 ```
+
+For the subtasks of 60-day or 90-day mortality, please change the `TASK_NAME` so that both the path and the `--task_name` argument are updated accordingly.
+
 
 5. Please make sure to check the number of processed datapoints. 
 If the numbers match the values written below, then the contents of the datasets are identical to our version. 
