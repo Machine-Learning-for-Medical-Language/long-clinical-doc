@@ -59,9 +59,6 @@ if __name__ == "__main__":
         "--gold_path", required=True, help="A gold annotation json file"
     )
     parser.add_argument(
-        "--discharge_path", required=True, help="Path to discharge.csv file"
-    )
-    parser.add_argument(
         "--task_name", default="out_hospital_mortality_30", 
         help="Name of the task. Currently supported tasks: out_hospital_mortality_30, out_hospital_mortality_60, out_hospital_mortality_90. Default: out_hospital_mortality_30"
     )
