@@ -19,6 +19,9 @@ Paper under review. Citation information at the end of the README
 
 ## Update log
 
+[Metadata creation](https://github.com/Machine-Learning-for-Medical-Language/long-clinical-doc/pull/5). (Pull req #5) 
+* Add code to generate metadata.json (with patient IDs for train/dev/test split) and update README with metadata details (See 6. of [Steps](https://github.com/Machine-Learning-for-Medical-Language/long-clinical-doc/blob/metadata_creation/README.md#steps))
+
 [Added subtasks for 60, 90 days](https://github.com/Machine-Learning-for-Medical-Language/long-clinical-doc/pull/4). (Pull req #4) 
 * Added `--task_name` flag and modified README accordingly.
 * Changed the folder name for main task (30-day) from `out_hos_30days_mortality/labels.json` → to `out_hospital_mortality_30/labels.json`
@@ -111,7 +114,7 @@ Test: 7,568
 ```
 
 6. Once processing is completed, metadata — including data_type (indicating whether the instance is train, dev, or test), note_id, subject_id, hadm_id, note_type, note_seq, charttime, and storetime — will be stored in `${OUTPUT_PATH}/${TASK_NAME}/metadata.json`.
-Example (numbers are replaced with arbitrary values):
+<br>Example (numbers are replaced with arbitrary values):
 ```
 {
   "0xbfe5e112c39b6240f54dc3af123456": {
