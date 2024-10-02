@@ -110,6 +110,23 @@ Dev: 7,505
 Test: 7,568 
 ```
 
+6. Once processing is completed, metadata — including data_type (indicating whether the instance is train, dev, or test), note_id, subject_id, hadm_id, note_type, note_seq, charttime, and storetime — will be stored in `${OUTPUT_PATH}/${TASK_NAME}/metadata.json`.
+Example (numbers are replaced with arbitrary values):
+```
+{
+  "0xbfe5e112c39b6240f54dc3af123456": {
+    "note_id": "10000000-DS-01",
+    "subject_id": 10000000,
+    "hadm_id": 12345678,
+    "note_type": "DS",
+    "note_seq": 01,
+    "charttime": "2199-12-29 00:00:00",
+    "storetime": "2199-12-30 21:59:00",
+    "data_type": "train"
+  },
+  "0xd8e888974794dffcc8d72734567890": {
+```
+
 ### Paper information
 Citation information:
 ```
