@@ -10,32 +10,48 @@ import h5py
 import torchvision.models as models
 
 class MultiChannelMortalityPredictor(nn.Module):
-    def __init__(self, shape, embed_dim = 512, num_heads=16):
+    def __init__(self, shape, embed_dim = 1024, num_heads=16):
         super(MultiChannelMortalityPredictor, self).__init__()
-        self.encoder = models.resnet18(pretrained=True)
-        self.encoder.fc = nn.Identity()
-        self.multi_head_attention = nn.MultiheadAttention(embed_dim, num_heads)
-        self.Q = torch.rand(embed_dim)
+#         self.encoder = models.resnet18(pretrained=True)
+        self.encoder = models.vision_transformer.vit_l_16(models.vision_transformer.ViT_L_16_Weights.IMAGENET1K_SWAG_E2E_V1)
+        # Replace the final head (was a classifier with an identity layer that does nothing)
+        self.encoder.heads.head = nn.Identity()
+        
+        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=4)
+        
+        ## Can we replace this all with transformer?
+#         self.multi_head_attention = nn.MultiheadAttention(embed_dim, num_heads, num_encoder_layers=2, num_decoder_layers=0)
+        self.cls = torch.rand(embed_dim)
+
         self.fc1 = nn.Linear(embed_dim, 2)
 
     def forward(self, batch_input, output_hidden_states=False):
-        if not self.Q.device == batch_input.device:
-            self.Q = self.Q.to(batch_input.device)
+        if not self.cls.device == batch_input.device:
+            self.cls = self.cls.to(batch_input.device)
 
+        batch_size = batch_input.shape[0]
+    
         # multiply out grayscale channels to RGB for resnet encoder
         rgb_matrix = torch.repeat_interleave(batch_input, 3, dim=1)
+
         # how many images are in this instance
         channels = rgb_matrix.shape[2]
-        reps = torch.stack([self.encoder(rgb_matrix[:,:,i,:,:]) for i in range(channels)])
+        input_reps = torch.stack([self.encoder(rgb_matrix[:,:,i,:,:]) for i in range(channels)])
+        input_reps = torch.cat([torch.repeat_interleave(self.cls.unsqueeze(0).unsqueeze(0), 2, dim=1), input_reps], dim=0)
         
-        attn_output, attn_weights = self.multi_head_attention(
-            # Need to multiply out the query vector so there's one for each batch, then unsqueeze again for dim=1 output 
-            torch.repeat_interleave(self.Q.unsqueeze(dim=0), batch_input.shape[0], dim=0).unsqueeze(dim=0),
-            reps,
-            reps
-        )
-        # squeeze the collapsed attention dimension but keep the batch dimension (in case batch size=1)
-        out = self.fc1(attn_output).squeeze(dim=0)
+        #torch.cat([self.cls.unsqueeze(0),
+        output_reps = self.transformer_encoder(input_reps)
+        
+#         attn_output, attn_weights = self.multi_head_attention(
+#             # Need to multiply out the query vector so there's one for each batch, then unsqueeze again for dim=1 output 
+#             torch.repeat_interleave(self.Q.unsqueeze(dim=0), batch_input.shape[0], dim=0).unsqueeze(dim=0),
+#             reps,
+#             reps
+#         )
+#         # squeeze the collapsed attention dimension but keep the batch dimension (in case batch size=1)
+
+        out = self.fc1(output_reps[0]).squeeze(dim=0)
         if output_hidden_states:
             return out, attn_output.squeeze(dim=0)
         else:

@@ -256,17 +256,25 @@ class TrainingArguments:
         default=None,
         metadata={"help": "The saved trained model to use to initialize a text classification model. Used in the multi-modal classifier."}
     )
+    ga: int = field(
+        default=1,
+        metadata={"help": "Gradient accumulation -- approximate larger batch sizes by skipping gradient clears for ga steps. Effective batch size is ga * batch_size."}
+    )
      
 def main(args): 
     if torch.cuda.is_available():
         device = 'cuda' 
     else:
+        sys.err.print("CUDA was not found available.... backing off to CPU, this may be very slow...")
+        sys.exit(-1)
         device = 'cpu'
 
     parser = HfArgumentParser(TrainingArguments)
     training_args, = parser.parse_args_into_dataclasses()
     batch_size = training_args.batch_size
     eval_freq = training_args.eval_freq
+    ga = training_args.ga
+    
     print("Training args: %s" % (str(training_args)))
 
     torch.cuda.manual_seed(training_args.seed)
@@ -301,7 +309,7 @@ def main(args):
     model.zero_grad()
     model = model.to(device)
     loss_fct = nn.CrossEntropyLoss()
-    opt = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    opt = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     
     print("Loading training data...")
     if training_args.train_file.endswith('.json'):
@@ -341,15 +349,14 @@ def main(args):
     else:
         dataloader = DataLoader(train_dataset, sampler=sampler, batch_size=batch_size)
 
-    best_loss = -1
+    best_loss = None
     all_dev_results = {}
     for epoch in range(training_args.num_training_epochs):
         model.train()
         epoch_loss = 0.0
+        accum_steps = 0
         #for count,ind in enumerate(train_inds):
         for batch in tqdm(dataloader, desc="Iteration"):
-            opt.zero_grad()
-
             if len(batch) == 3:
                 batch_images, batch_text, batch_labels = batch
             elif len(batch) == 2:
@@ -378,23 +385,31 @@ def main(args):
 
             loss = loss_fct(logits, batch_labels)
             loss.backward()
-            epoch_loss += loss.item()
-            opt.step()
-            model.zero_grad()
+            accum_steps += 1
+
+            if accum_steps % ga == 0:
+                opt.step()
+                opt.zero_grad()
+                epoch_loss += loss.item()
+                accum_steps = 0
+
         print("Epoch %d loss: %0.9f" % (epoch, epoch_loss))
         if epoch % eval_freq == 0:
             dev_results = run_one_eval(model, dev_dataset, device, training_args.model)
+            dev_loss = dev_results['dev_loss']
+            dev_auroc = dev_results['auroc']
+            thing_to_minimize=-dev_auroc # save when auroc is better than before
             for result_key, result_val in dev_results.items():
                 print("Dev %s = %s" % (result_key, str(result_val)))
                 if result_key not in all_dev_results:
                     all_dev_results[result_key] = []
                 all_dev_results[result_key].append(result_val)
 
-        if best_loss < 0 or epoch_loss < best_loss:
-            best_loss = epoch_loss
-            if training_args.model_filename:
-                print("Saving model")
-                torch.save(model, training_args.model_filename)
+            if not best_loss or thing_to_minimize < best_loss:
+                best_loss = thing_to_minimize
+                if training_args.model_filename:
+                    print("Saving model")
+                    torch.save(model, training_args.model_filename)
 
     # load the best model rather than the most recent
     if training_args.model_filename:
