@@ -28,7 +28,11 @@ class MultiModalMortalityPredictor(nn.Module):
         self.text_model.load_state_dict(torch.load(join(text_model, "pytorch_model.bin")))
 
         self.img_model = torch.load(img_model)
-        self.fc = nn.Linear(512+1500, 2)
+        # CNN text model = 1500
+        # ResNet image model = 512
+        # ViT image model = 1024
+        
+        self.fc = nn.Linear(1500+1024, 2)
 
     def forward(self, img_matrix, text):
         max_len = max([len(x) for x in text])
