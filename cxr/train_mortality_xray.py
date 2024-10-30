@@ -19,7 +19,7 @@ from models.MultiModalModel import MultiModalMortalityPredictor
 
 import torch
 import torch.nn as nn
-from torch.utils.data import (DataLoader, RandomSampler, TensorDataset)
+from torch.utils.data import (DataLoader, RandomSampler, TensorDataset, Subset)
 import torch.nn.functional as F
 import torchvision.transforms as tfms
 import torchvision.models as models
@@ -324,8 +324,12 @@ def main(args):
     elif training_args.train_file.endswith('.pt'):
         print("Loading training data from cached pytorch file.")
         train_dataset = torch.load(training_args.train_file)
+        if training_args.max_train > 0 and training_args.max_train < len(train_dataset):
+            train_dataset = Subset(train_dataset, list(range(training_args.max_train)))
     elif training_args.train_file.endswith('.hdf5'):
         train_dataset = VariableLengthImageDataset(training_args.train_file)
+        if training_args.max_train > 0 and training_args.max_train < len(train_dataset):
+            train_dataset = Subset(train_dataset, list(range(training_args.max_train)))
 
     print("Loading evaluation data...")
     if training_args.eval_file.endswith('.json'):    

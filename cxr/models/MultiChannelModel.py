@@ -38,7 +38,7 @@ class MultiChannelMortalityPredictor(nn.Module):
         # how many images are in this instance
         channels = rgb_matrix.shape[2]
         input_reps = torch.stack([self.encoder(rgb_matrix[:,:,i,:,:]) for i in range(channels)])
-        input_reps = torch.cat([torch.repeat_interleave(self.cls.unsqueeze(0).unsqueeze(0), 2, dim=1), input_reps], dim=0)
+        input_reps = torch.cat([torch.repeat_interleave(self.cls.unsqueeze(0).unsqueeze(0), batch_size, dim=1), input_reps], dim=0)
         
         #torch.cat([self.cls.unsqueeze(0),
         output_reps = self.transformer_encoder(input_reps)
@@ -51,9 +51,9 @@ class MultiChannelMortalityPredictor(nn.Module):
 #         )
 #         # squeeze the collapsed attention dimension but keep the batch dimension (in case batch size=1)
 
-        out = self.fc1(output_reps[0]).squeeze(dim=0)
+        out = self.fc1(output_reps[0])
         if output_hidden_states:
-            return out, attn_output.squeeze(dim=0)
+            return out, output_reps[0]
         else:
             return out
 
