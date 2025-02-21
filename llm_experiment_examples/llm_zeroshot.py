@@ -83,6 +83,12 @@ if __name__ == "__main__":
         required=False,
         help="Path to save outputs. Default: os.path.join('output-' + args.model_name_or_path.replace('/', '-'))",
     )   
+    parser.add_argument(
+        "--task_name",
+        required=False,
+        default="out_hospital_mortality_30",
+        help="task_name (i.e. label) in the dataset. default: out_hospital_mortality_30",
+    )   
 
     args = parser.parse_args()
     logger.warning(f"### args: {args}")
@@ -105,6 +111,8 @@ if __name__ == "__main__":
     # 1. Define custom_make_sequence function 
     # 2. make_sequence = custom_make_sequence
     make_sequence = None # Defalut: None 
+    MORT_DAYS = args.task_name.split("_")[-1]
+
 
     # Model-specific Flags
     USE_FAST = True
@@ -142,8 +150,8 @@ if __name__ == "__main__":
 
     if make_sequence == None:
         def hf_apply_chat_templet(input_text):
-            system_prompt = "Below is a clinical document, please remember the following clinical context and answer how likely is the given patient's out hospital mortality in 30 days?"
-            question = "How likely is the given patient\'s out hospital mortality in 30 days? Please only use to answer with one word: 0:alive, 1:death"
+            system_prompt = f"Below is a clinical document, please remember the following clinical context and answer how likely is the given patient's out hospital mortality in {MORT_DAYS} days?"
+            question = f"How likely is the given patient\'s out hospital mortality in {MORT_DAYS} days? Please only use to answer with one word: 0:alive, 1:death"
             prompt = 'Here is the clinical document: \n ' + input_text +'\n' + question
 
             if SYSTEM_EXIST:
@@ -205,7 +213,7 @@ if __name__ == "__main__":
             
             output = {
                 'id': instance['id'], 
-                'label': instance['out_hospital_mortality_30'], 
+                'label': instance[args.task_name], 
                 'prediction': tokenizer.decode(prediction),
                 'binary': extract_first_binary(tokenizer.decode(prediction[min(len_input-1, args.max_length-OUTPUT_BUFFER-1):])),
                 'len_input': len_input,
